@@ -17,6 +17,9 @@ export interface TrainerExercise {
   poseKey: string | null;
   metValue: number;
   aiRepCount: boolean;
+  muscles: string[];
+  secondaryMuscles: string[];
+  formTips: string[];
 }
 
 type Phase = "setup" | "active" | "report";
@@ -33,6 +36,7 @@ export function TrainerExperience({
   const [phase, setPhase] = useState<Phase>("setup");
   const [sets, setSets] = useState(3);
   const [reps, setReps] = useState(isHold ? 30 : 10);
+  const [rest, setRest] = useState(60);
   const [voiceOn, setVoiceOn] = useState(true);
   const [result, setResult] = useState<SessionResult | null>(null);
 
@@ -42,6 +46,7 @@ export function TrainerExperience({
         exercise={exercise}
         targetSets={sets}
         targetReps={reps}
+        restSeconds={rest}
         isHold={isHold}
         voiceOn={voiceOn}
         bodyWeightKg={bodyWeightKg}
@@ -111,7 +116,38 @@ export function TrainerExperience({
           />
         </div>
 
-        <label className="mt-6 flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+        <div className="mt-4">
+          <p className="mb-2 text-xs uppercase tracking-widest text-smoke">
+            Rest between sets
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {[30, 60, 90, 120].map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setRest(r)}
+                className={`flex-1 rounded-2xl border px-3 py-2 text-sm font-semibold transition-all ${
+                  rest === r
+                    ? "border-ember/60 bg-ember/15 text-chalk"
+                    : "border-white/10 bg-white/[0.03] text-fog hover:text-chalk"
+                }`}
+              >
+                {r}s
+              </button>
+            ))}
+            <input
+              type="number"
+              min={10}
+              max={600}
+              placeholder="Custom"
+              value={[30, 60, 90, 120].includes(rest) ? "" : rest}
+              onChange={(e) => setRest(Math.max(5, Number(e.target.value) || 0))}
+              className="w-20 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 text-center text-sm text-chalk outline-none focus:border-ember/50"
+            />
+          </div>
+        </div>
+
+        <label className="mt-4 flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
           <span className="text-sm text-chalk">Voice coaching</span>
           <button
             type="button"

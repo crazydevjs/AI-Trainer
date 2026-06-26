@@ -85,6 +85,49 @@ export function stopSpeaking() {
   if (supported()) window.speechSynthesis.cancel();
 }
 
+/** Speak several lines back-to-back (queued, not cut off). */
+export function speakSequence(lines: string[], priority = true) {
+  if (!enabled || !supported()) return;
+  if (priority) window.speechSynthesis.cancel();
+  window.speechSynthesis.resume();
+  for (const text of lines) {
+    if (!text?.trim()) continue;
+    const u = new SpeechSynthesisUtterance(text);
+    if (preferred) u.voice = preferred;
+    u.lang = preferred?.lang || "en-US";
+    u.rate = 1.05;
+    window.speechSynthesis.speak(u);
+  }
+  lastSpoke = Date.now();
+}
+
+let audioCtx: AudioContext | null = null;
+
+/** Short notification beep (e.g. rest-over). Respects the mute toggle. */
+export function playBeep() {
+  if (!enabled || typeof window === "undefined") return;
+  try {
+    const Ctx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    audioCtx = audioCtx || new Ctx();
+    const t = audioCtx.currentTime;
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.connect(g);
+    g.connect(audioCtx.destination);
+    o.type = "sine";
+    o.frequency.value = 880;
+    g.gain.setValueAtTime(0.001, t);
+    g.gain.exponentialRampToValueAtTime(0.3, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+    o.start(t);
+    o.stop(t + 0.26);
+  } catch {
+    /* ignore */
+  }
+}
+
 export interface VoiceStatus {
   supported: boolean;
   unlocked: boolean;

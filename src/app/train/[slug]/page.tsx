@@ -24,6 +24,9 @@ export default async function TrainPage({
       poseKey: true,
       metValue: true,
       aiRepCount: true,
+      muscles: true,
+      secondaryMuscles: true,
+      formTips: true,
     },
   });
   if (!exercise) notFound();

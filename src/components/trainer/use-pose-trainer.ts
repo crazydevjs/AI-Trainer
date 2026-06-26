@@ -225,6 +225,7 @@ export function usePoseTrainer({
     lockAtClient,
     resetLock,
     getSummary: () => counterRef.current.summary(),
+    getAttempts: () => counterRef.current.getAttempts(),
   };
 }
 

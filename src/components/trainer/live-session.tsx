@@ -23,9 +23,13 @@ import {
   speak,
   stopSpeaking,
   unlockVoice,
+  speakSequence,
+  playBeep,
   type VoiceStatus,
 } from "@/lib/voice";
 import { Coach } from "@/lib/coach";
+import { analyzeSet, type SetReport } from "@/lib/pose/set-analysis";
+import { RestScreen } from "./rest-screen";
 import type { TrainerExercise } from "./trainer-experience";
 
 export interface SessionResult {
@@ -42,9 +46,19 @@ export interface SessionResult {
   sets: { setNumber: number; reps: number; formScore?: number; romScore?: number }[];
 }
 
-const REST_SECONDS = 30;
-
 type Cue = { text: string; id: number; tone: "praise" | "correct" | "bad" };
+
+function tempoFromTimes(times: number[]): number {
+  if (times.length < 3) return 100;
+  const ivs: number[] = [];
+  for (let i = 1; i < times.length; i++) ivs.push((times[i] - times[i - 1]) / 1000);
+  const avg = ivs.reduce((a, b) => a + b, 0) / ivs.length;
+  if (avg < 1) return 50;
+  if (avg < 1.5) return 70;
+  if (avg < 2) return 88;
+  if (avg <= 4.5) return 100;
+  return 85;
+}
 
 const TONE_STYLES: Record<Cue["tone"], string> = {
   praise: "border-neon/50 bg-neon/15 text-neon",
@@ -56,6 +70,7 @@ export function LiveSession({
   exercise,
   targetSets,
   targetReps,
+  restSeconds,
   isHold,
   voiceOn,
   bodyWeightKg,
@@ -65,6 +80,7 @@ export function LiveSession({
   exercise: TrainerExercise;
   targetSets: number;
   targetReps: number;
+  restSeconds: number;
   isHold: boolean;
   voiceOn: boolean;
   bodyWeightKg: number;
@@ -91,6 +107,7 @@ export function LiveSession({
     voice: null,
   });
 
+  const [restReport, setRestReport] = useState<SetReport | null>(null);
   const setStartCount = useRef(0);
   const repTimes = useRef<number[]>([]);
   const startTs = useRef(performance.now());
@@ -99,6 +116,10 @@ export function LiveSession({
   const coach = useRef(new Coach()).current;
   const startedRef = useRef(false);
   const hypeRef = useRef("");
+  const prevReportRef = useRef<SetReport | null>(null);
+  const attemptsAtSetStart = useRef(0);
+  const repTimesAtSetStart = useRef(0);
+  const announced15 = useRef(false);
 
   useEffect(() => {
     setVoiceEnabled(voice);
@@ -152,6 +173,7 @@ export function LiveSession({
     lockAtClient,
     resetLock,
     getSummary,
+    getAttempts,
   } = usePoseTrainer({
     poseKey: exercise.poseKey,
     running: !paused && !resting && !finishedRef.current,
@@ -249,30 +271,68 @@ export function LiveSession({
         formScore: state.avgForm ?? undefined,
         romScore: state.avgRom ?? undefined,
       });
+
+      // Build the per-set debrief from this set's attempts.
+      const slice = getAttempts().slice(attemptsAtSetStart.current);
+      const setTimes = repTimes.current.slice(repTimesAtSetStart.current);
+      const report = isHold
+        ? null
+        : analyzeSet(
+            currentSet,
+            slice,
+            tempoFromTimes(setTimes),
+            {
+              name: exercise.name,
+              muscles: exercise.muscles,
+              secondaryMuscles: exercise.secondaryMuscles,
+              formTips: exercise.formTips,
+            },
+            prevReportRef.current
+          );
+
       if (currentSet >= targetSets) {
         finish();
       } else {
         setStartCount.current = liveCount;
         setCurrentSet((s) => s + 1);
+        if (report) {
+          prevReportRef.current = report;
+          setRestReport(report);
+        }
         setResting(true);
-        setRestLeft(REST_SECONDS);
-        coach.setDone();
+        setRestLeft(restSeconds);
+        announced15.current = false;
+        // Announce rest + the top coaching points back-to-back.
+        speakSequence([
+          `Set ${currentSet} complete. Rest for ${restSeconds} seconds.`,
+          ...(report?.voiceLines.slice(0, 2) ?? []),
+        ]);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveCount]);
 
-  // rest countdown
+  // rest countdown + rest-period voice coaching
   useEffect(() => {
     if (!resting) return;
     if (restLeft <= 0) {
+      playBeep();
       setResting(false);
+      setRestReport(null);
+      // mark the next set's attempt/time window
+      attemptsAtSetStart.current = getAttempts().length;
+      repTimesAtSetStart.current = repTimes.current.length;
       coach.nextSet();
       return;
     }
+    if (restLeft === 15 && !announced15.current) {
+      announced15.current = true;
+      speakSequence(["15 seconds remaining."]);
+    }
     const t = setTimeout(() => setRestLeft((r) => r - 1), 1000);
     return () => clearTimeout(t);
-  }, [resting, restLeft, coach]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resting, restLeft]);
 
   const inSetCount = Math.max(0, liveCount - setStartCount.current);
 
@@ -520,9 +580,19 @@ export function LiveSession({
         )}
       </div>
 
-      {/* Rest overlay */}
+      {/* Rest screen — coached debrief + countdown */}
       <AnimatePresence>
-        {resting && (
+        {resting && restReport && (
+          <RestScreen
+            report={restReport}
+            timeLeft={restLeft}
+            total={restSeconds}
+            totalSets={targetSets}
+            onSkip={() => setRestLeft(0)}
+            onAddTime={() => setRestLeft((r) => r + 15)}
+          />
+        )}
+        {resting && !restReport && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}

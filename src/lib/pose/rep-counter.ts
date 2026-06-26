@@ -13,6 +13,16 @@ export interface Fault {
   severity: Severity;
 }
 
+/** A completed attempt (valid rep or rejected attempt) for per-set analysis. */
+export interface AttemptRecord {
+  valid: boolean;
+  repNumber: number; // valid-rep number (0 if rejected)
+  form: number;
+  rom: number;
+  stability: number;
+  faults: string[]; // fault messages seen this attempt
+}
+
 export type CoachEvent =
   | {
       type: "rep";
@@ -103,8 +113,10 @@ export class RepCounter {
   private faultFrames: Record<string, number> = {};
   private repFaults: Record<string, Severity> = {};
   private warnedFault = new Set<string>();
+  private attemptFaults: string[] = []; // fault messages this attempt
   private currentFault: Fault | null = null;
   private currentJoints: string[] = [];
+  private attempts: AttemptRecord[] = [];
 
   // per-rep stability sampling
   private swayMin = Infinity;
@@ -146,12 +158,18 @@ export class RepCounter {
     this.faultFrames = {};
     this.repFaults = {};
     this.warnedFault.clear();
+    this.attemptFaults = [];
     this.currentFault = null;
     this.currentJoints = [];
     this.swayMin = Infinity;
     this.swayMax = -Infinity;
     this.torsoSum = 0;
     this.torsoN = 0;
+  }
+
+  /** Full attempt log (valid + rejected) for per-set analysis. */
+  getAttempts(): AttemptRecord[] {
+    return this.attempts;
   }
 
   private sampleStability(map: KeypointMap) {
@@ -220,6 +238,9 @@ export class RepCounter {
         this.warnedFault.add(fresh.id);
         this.repFaults[fresh.id] = fresh.severity;
         this.faultCounts[fresh.message] = (this.faultCounts[fresh.message] ?? 0) + 1;
+        if (!this.attemptFaults.includes(fresh.message)) {
+          this.attemptFaults.push(fresh.message);
+        }
         if (this.throttleCue(now)) {
           events.push({ type: "cue", message: fresh.message, tone: "correct" });
         }
@@ -260,11 +281,16 @@ export class RepCounter {
       const warnCount = Object.values(this.repFaults).filter((s) => s === "warn").length;
       const form = Math.max(0, 100 - errorCount * 30 - warnCount * 12);
       const stability = this.computeStability();
+      const idealProgress =
+        (cfg.idealAngle - cfg.startAngle) / (cfg.activeAngle - cfg.startAngle);
+      const rom = Math.round(clamp(this.maxProgress / idealProgress) * 100);
 
       // REJECT: depth
       if (!this.reachedDepth) {
         this.invalidReps += 1;
         this.faultCounts[cfg.incompleteCue] = (this.faultCounts[cfg.incompleteCue] ?? 0) + 1;
+        if (!this.attemptFaults.includes(cfg.incompleteCue)) this.attemptFaults.push(cfg.incompleteCue);
+        this.attempts.push({ valid: false, repNumber: 0, form, rom, stability, faults: this.attemptFaults });
         this.resetRep();
         events.push({ type: "badrep", reason: cfg.incompleteCue });
         return events;
@@ -273,15 +299,13 @@ export class RepCounter {
       if (errorCount > 0) {
         const reason = this.firstErrorCue();
         this.invalidReps += 1;
+        this.attempts.push({ valid: false, repNumber: 0, form, rom, stability, faults: this.attemptFaults });
         this.resetRep();
         events.push({ type: "badrep", reason });
         return events;
       }
 
       // VALID REP
-      const idealProgress =
-        (cfg.idealAngle - cfg.startAngle) / (cfg.activeAngle - cfg.startAngle);
-      const rom = Math.round(clamp(this.maxProgress / idealProgress) * 100);
       const quality: "perfect" | "good" =
         rom >= 90 && form >= 85 && stability >= 80 ? "perfect" : "good";
 
@@ -289,6 +313,7 @@ export class RepCounter {
       this.romScores.push(rom);
       this.formScores.push(form);
       this.stabilityScores.push(stability);
+      this.attempts.push({ valid: true, repNumber: this.reps, form, rom, stability, faults: this.attemptFaults });
       this.lastRepTs = now;
       this.resetRep();
       events.push({ type: "rep", reps: this.reps, rom, form, stability, quality });
