@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getExerciseConfig } from "@/lib/pose/exercises";
+import { unlockVoice } from "@/lib/voice";
 import { LiveSession, type SessionResult } from "./live-session";
 import { SessionReport } from "./session-report";
 
@@ -114,7 +115,11 @@ export function TrainerExperience({
           <span className="text-sm text-chalk">Voice coaching</span>
           <button
             type="button"
-            onClick={() => setVoiceOn((v) => !v)}
+            onClick={() => {
+              const next = !voiceOn;
+              setVoiceOn(next);
+              if (next) unlockVoice(); // user gesture → satisfy autoplay policy
+            }}
             className={`relative h-6 w-11 rounded-full transition-colors ${
               voiceOn ? "bg-ember" : "bg-white/15"
             }`}
@@ -131,7 +136,12 @@ export function TrainerExperience({
         <Button
           size="xl"
           className="mt-6 w-full"
-          onClick={() => setPhase("active")}
+          onClick={() => {
+            // Unlock speech synthesis inside the click gesture so the coach
+            // can speak in production (autoplay policy on new origins).
+            if (voiceOn) unlockVoice();
+            setPhase("active");
+          }}
         >
           Start workout
         </Button>

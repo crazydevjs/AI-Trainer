@@ -6,7 +6,13 @@ import { Loader2, Pause, Play, Square, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePoseTrainer } from "./use-pose-trainer";
 import type { CoachEvent } from "@/lib/pose/rep-counter";
-import { setVoiceEnabled, stopSpeaking } from "@/lib/voice";
+import {
+  getVoiceStatus,
+  setVoiceEnabled,
+  stopSpeaking,
+  unlockVoice,
+  type VoiceStatus,
+} from "@/lib/voice";
 import { Coach } from "@/lib/coach";
 import type { TrainerExercise } from "./trainer-experience";
 
@@ -56,6 +62,12 @@ export function LiveSession({
   const [currentSet, setCurrentSet] = useState(1);
   const [cue, setCue] = useState<Cue | null>(null);
   const [voice, setVoice] = useState(voiceOn);
+  const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>({
+    supported: true,
+    unlocked: false,
+    speaking: false,
+    voice: null,
+  });
 
   const setStartCount = useRef(0);
   const repTimes = useRef<number[]>([]);
@@ -69,6 +81,18 @@ export function LiveSession({
   useEffect(() => {
     setVoiceEnabled(voice);
   }, [voice]);
+
+  // Poll the speech engine so the HUD can show status / a fallback button.
+  useEffect(() => {
+    const id = setInterval(() => setVoiceStatus(getVoiceStatus()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  function enableVoice() {
+    unlockVoice();
+    setVoice(true);
+    setVoiceStatus(getVoiceStatus());
+  }
 
   const handleEvent = useCallback(
     (e: CoachEvent) => {
@@ -274,6 +298,22 @@ export function LiveSession({
         </div>
       )}
 
+      {/* Voice fallback: speech blocked / not yet unlocked */}
+      {status === "ready" && voice && voiceStatus.supported && !voiceStatus.unlocked && (
+        <button
+          onClick={enableVoice}
+          className="absolute left-1/2 top-36 z-20 -translate-x-1/2 flex items-center gap-2 rounded-full border border-volt/50 bg-volt/15 px-4 py-2 text-sm font-medium text-volt backdrop-blur"
+        >
+          <Volume2 className="h-4 w-4" />
+          Tap to enable coach voice
+        </button>
+      )}
+      {status === "ready" && voice && !voiceStatus.supported && (
+        <div className="absolute left-1/2 top-36 z-20 -translate-x-1/2 rounded-full border border-white/20 bg-black/50 px-4 py-2 text-xs text-fog backdrop-blur">
+          Voice not supported here — on-screen coaching is active
+        </div>
+      )}
+
       {/* Floating cue */}
       <AnimatePresence>
         {cue && (
@@ -372,9 +412,20 @@ export function LiveSession({
       {/* Bottom controls */}
       <div className="absolute inset-x-0 bottom-0 z-20 flex items-center justify-center gap-3 p-5 sm:p-8">
         <button
-          onClick={() => setVoice((v) => !v)}
+          onClick={() => {
+            const next = !voice;
+            setVoice(next);
+            if (next) unlockVoice(); // re-arm within the click gesture
+          }}
           className="grid h-12 w-12 place-items-center rounded-full border border-white/15 bg-white/5 text-chalk backdrop-blur hover:bg-white/10"
           aria-label="Toggle voice"
+          title={
+            voiceStatus.supported
+              ? voiceStatus.voice
+                ? `Voice: ${voiceStatus.voice}`
+                : "Coach voice"
+              : "Voice not supported"
+          }
         >
           {voice ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
         </button>
