@@ -1,89 +1,91 @@
 import {
   angle,
-  angleFromVertical,
   bestSide,
   toMap,
   type Keypoint,
   type KeypointMap,
 } from "./angles";
 import type { ExerciseConfig, RepConfig, PostureRule } from "./exercises";
+import type { FormCheck, Severity } from "./form-rules";
+
+export interface Fault {
+  message: string;
+  severity: Severity;
+}
 
 export type CoachEvent =
   | { type: "rep"; reps: number; rom: number; form: number; quality: "perfect" | "good" }
-  // a movement was attempted but rejected (didn't meet ROM/form) — NOT counted
   | { type: "badrep"; reason: string }
-  // live coaching while moving (corrections + encouragement)
   | { type: "cue"; message: string; tone: "correct" | "praise" };
 
 export interface CoachState {
   reps: number;
   holdSeconds: number;
-  /** 0..1 toward the required depth — drives the live HUD ring */
   progress: number;
   avgRom: number | null;
   avgForm: number | null;
   formOk: boolean;
   tracking: boolean;
-  /** true while the user is mid-rep (descended past the start) */
   inMotion: boolean;
+  /** current live form fault for the on-screen indicator */
+  fault: Fault | null;
 }
 
 // --- tuning ---
-const ENTER = 0.35; // progress to consider a rep "started"
-const EXIT = 0.15; // progress to consider returned to the top
-const DEPTH_FRAMES = 2; // consecutive frames at depth before it's validated
-const REVERSAL = 0.18; // progress drop that signals coming up early
-const FORM_GATE = 45; // below this form score a rep is rejected
-const MIN_CONF = 0.3; // keypoint confidence floor
-const SMOOTH = 0.5; // angle EMA factor
+const ENTER = 0.35;
+const EXIT = 0.15;
+const DEPTH_FRAMES = 2;
+const REVERSAL = 0.18;
+const MIN_CONF = 0.3;
+const SMOOTH = 0.5;
+const FAULT_FRAMES = 4; // a fault must persist this many frames (anti-jitter)
+const CHECK_FROM = 0.35; // only judge form once into the movement
 
 const clamp = (n: number, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, n));
 
-function postureMetric(map: KeypointMap, side: string, rule: PostureRule) {
+function holdPosture(map: KeypointMap, side: string, rule: PostureRule) {
   const sh = map[`${side}_shoulder`];
   const hip = map[`${side}_hip`];
-  if (rule.kind === "torsoUpright") {
-    if (!sh || !hip) return { ok: true, value: 0 };
-    const lean = angleFromVertical(sh, hip);
-    return { ok: lean <= rule.threshold, value: lean };
-  }
   const knee = map[`${side}_knee`];
-  if (!sh || !hip || !knee) return { ok: true, value: 180 };
-  const a = angle(sh, hip, knee);
-  return { ok: a >= rule.threshold, value: a };
+  if (!sh || !hip || !knee) return true;
+  return angle(sh, hip, knee) >= rule.threshold;
 }
 
 export class RepCounter {
   private cfg: ExerciseConfig;
+  private checks: FormCheck[];
   reps = 0;
   holdSeconds = 0;
 
-  // rep-mode state
   private inAttempt = false;
   private maxProgress = 0;
   private framesAtDepth = 0;
   private reachedDepth = false;
   private warnedDepth = false;
-  private warnedPosture = false;
-  private worstForm = 0;
   private smoothAngle = NaN;
   private progress = 0;
-  private formOk = true;
   private tracking = false;
   private lastRepTs = 0;
   private lastTs = 0;
   private lastCueTs = 0;
 
+  // form-fault tracking (per rep)
+  private faultFrames: Record<string, number> = {};
+  private repFaults: Record<string, Severity> = {};
+  private warnedFault = new Set<string>();
+  private currentFault: Fault | null = null;
+
   private romScores: number[] = [];
   private formScores: number[] = [];
 
-  // hold/generic state
   private gPhase: "up" | "down" = "up";
   private gBaseline = 0;
   private holdPraiseAt = 0;
+  private holdFormOk = true;
 
-  constructor(cfg: ExerciseConfig) {
+  constructor(cfg: ExerciseConfig, checks: FormCheck[] = []) {
     this.cfg = cfg;
+    this.checks = checks;
   }
 
   private throttleCue(now: number, gap = 1500): boolean {
@@ -96,10 +98,16 @@ export class RepCounter {
     const dt = this.lastTs ? (now - this.lastTs) / 1000 : 0;
     this.lastTs = now;
     const map = toMap(rawKeypoints);
-
     if (this.cfg.type === "generic") return this.updateGeneric(map, now);
     if (this.cfg.type === "hold") return this.updateHold(map, dt, now);
     return this.updateRep(this.cfg, map, now);
+  }
+
+  private resetRep() {
+    this.faultFrames = {};
+    this.repFaults = {};
+    this.warnedFault.clear();
+    this.currentFault = null;
   }
 
   private updateRep(cfg: RepConfig, map: KeypointMap, now: number): CoachEvent[] {
@@ -115,38 +123,26 @@ export class RepCounter {
     const pts = cfg.joint.map((j) => map[`${side}_${j}`]) as Keypoint[];
     if (pts.some((p) => !p || (p.score ?? 0) < MIN_CONF)) {
       this.tracking = false;
-      return events; // ignore low-confidence frames (anti-jitter)
+      return events;
     }
 
-    // smoothed primary angle
     const raw = angle(pts[0], pts[1], pts[2]);
     this.smoothAngle = isNaN(this.smoothAngle)
       ? raw
       : this.smoothAngle * (1 - SMOOTH) + raw * SMOOTH;
     const ang = this.smoothAngle;
-
-    // unified directional progress: 0 at start, 1 at required depth, >1 deeper
     const progress = (ang - cfg.startAngle) / (cfg.activeAngle - cfg.startAngle);
     this.progress = clamp(progress);
 
-    // posture sampling (live)
-    let postureValue = cfg.posture?.kind === "torsoUpright" ? 0 : 180;
-    if (cfg.posture) {
-      const m = postureMetric(map, side, cfg.posture);
-      this.formOk = m.ok;
-      postureValue = m.value;
-    }
-
     if (!this.inAttempt) {
-      // start a rep attempt once clearly descending from the top
+      this.currentFault = null;
       if (progress > ENTER) {
         this.inAttempt = true;
         this.maxProgress = progress;
         this.framesAtDepth = 0;
         this.reachedDepth = false;
         this.warnedDepth = false;
-        this.warnedPosture = false;
-        this.worstForm = postureValue;
+        this.resetRep();
       }
       return events;
     }
@@ -154,20 +150,25 @@ export class RepCounter {
     // --- in an attempt ---
     this.maxProgress = Math.max(this.maxProgress, progress);
 
-    // track worst posture during the rep
-    if (cfg.posture) {
-      this.worstForm =
-        cfg.posture.kind === "torsoUpright"
-          ? Math.max(this.worstForm, postureValue)
-          : Math.min(this.worstForm, postureValue);
-      // live posture correction mid-rep
-      if (!this.formOk && !this.warnedPosture && progress > 0.4 && this.throttleCue(now)) {
-        this.warnedPosture = true;
-        events.push({ type: "cue", message: cfg.posture.cue, tone: "correct" });
+    // evaluate form faults once into the movement
+    if (progress > CHECK_FROM) {
+      const active = this.evalChecks(map, side);
+      this.currentFault = pickWorst(active);
+      // announce a newly-seen fault (errors first), once per rep per fault
+      const fresh = active.find(
+        (f) => !this.warnedFault.has(f.id)
+      );
+      if (fresh) {
+        this.warnedFault.add(fresh.id);
+        this.repFaults[fresh.id] = fresh.severity;
+        if (this.throttleCue(now)) {
+          events.push({ type: "cue", message: fresh.message, tone: "correct" });
+        }
       }
+    } else {
+      this.currentFault = null;
     }
 
-    // depth validation with multi-frame stability (anti-jitter)
     if (progress >= 1) {
       this.framesAtDepth += 1;
       if (this.framesAtDepth >= DEPTH_FRAMES) this.reachedDepth = true;
@@ -175,7 +176,7 @@ export class RepCounter {
       this.framesAtDepth = 0;
     }
 
-    // coming back up before reaching depth → coach immediately
+    // coming up before reaching depth → coach immediately
     if (
       !this.reachedDepth &&
       !this.warnedDepth &&
@@ -188,30 +189,28 @@ export class RepCounter {
       }
     }
 
-    // attempt ends when returned to the top
+    // attempt ends at the top
     if (progress < EXIT) {
       this.inAttempt = false;
       this.progress = 0;
+      this.currentFault = null;
       const tooFast = this.lastRepTs > 0 && now - this.lastRepTs < 700;
 
-      // form score from worst posture seen
-      let form = 100;
-      if (cfg.posture) {
-        form =
-          cfg.posture.kind === "torsoUpright"
-            ? Math.round(clamp(1 - (this.worstForm - cfg.posture.threshold) / 60) * 100)
-            : Math.round(clamp(1 - (cfg.posture.threshold - this.worstForm) / 50) * 100);
-        form = Math.max(0, Math.min(100, form));
-      }
+      const errors = Object.values(this.repFaults).filter((s) => s === "error").length;
+      const warns = Object.values(this.repFaults).filter((s) => s === "warn").length;
+      const form = Math.max(0, 100 - errors * 30 - warns * 12);
 
       // REJECT: insufficient depth
       if (!this.reachedDepth) {
+        this.resetRep();
         events.push({ type: "badrep", reason: cfg.incompleteCue });
         return events;
       }
-      // REJECT: depth ok but form unacceptable
-      if (cfg.posture && form < FORM_GATE) {
-        events.push({ type: "badrep", reason: cfg.posture.cue });
+      // REJECT: unsafe form (an error-severity fault persisted)
+      if (errors > 0) {
+        const reason = this.firstErrorCue();
+        this.resetRep();
+        events.push({ type: "badrep", reason });
         return events;
       }
 
@@ -226,6 +225,7 @@ export class RepCounter {
       this.romScores.push(rom);
       this.formScores.push(form);
       this.lastRepTs = now;
+      this.resetRep();
       events.push({ type: "rep", reps: this.reps, rom, form, quality });
 
       if (tooFast && this.throttleCue(now, 1200)) {
@@ -234,6 +234,25 @@ export class RepCounter {
     }
 
     return events;
+  }
+
+  private evalChecks(map: KeypointMap, side: "left" | "right"): (Fault & { id: string })[] {
+    const active: (Fault & { id: string })[] = [];
+    for (const c of this.checks) {
+      const good = c.test(map, side);
+      this.faultFrames[c.id] = good ? 0 : (this.faultFrames[c.id] ?? 0) + 1;
+      if ((this.faultFrames[c.id] ?? 0) >= FAULT_FRAMES) {
+        active.push({ id: c.id, message: c.cue, severity: c.severity });
+      }
+    }
+    return active;
+  }
+
+  private firstErrorCue(): string {
+    for (const c of this.checks) {
+      if (this.repFaults[c.id] === "error") return c.cue;
+    }
+    return "Fix your form";
   }
 
   private updateHold(map: KeypointMap, dt: number, now: number): CoachEvent[] {
@@ -247,15 +266,15 @@ export class RepCounter {
     this.tracking = side !== null;
     if (!side) return events;
 
-    const m = postureMetric(map, side, cfg.posture);
-    this.formOk = m.ok;
-    this.progress = clamp(m.value / 180);
-    if (m.ok) {
+    const good = holdPosture(map, side, cfg.posture);
+    this.holdFormOk = good;
+    this.currentFault = good ? null : { message: cfg.posture.cue, severity: "warn" };
+    if (good) {
       this.holdSeconds += dt;
       this.formScores.push(100);
       if (this.holdSeconds - this.holdPraiseAt >= 15) {
         this.holdPraiseAt = this.holdSeconds;
-        events.push({ type: "cue", message: "Solid hold — stay tight", tone: "praise" });
+        events.push({ type: "cue", message: "Great hold. Stay strong.", tone: "praise" });
       }
     } else {
       this.formScores.push(40);
@@ -268,9 +287,9 @@ export class RepCounter {
 
   private updateGeneric(map: KeypointMap, now: number): CoachEvent[] {
     const events: CoachEvent[] = [];
-    const lh = map["left_hip"];
-    const rh = map["right_hip"];
-    const ls = map["left_shoulder"];
+    const lh = map.left_hip;
+    const rh = map.right_hip;
+    const ls = map.left_shoulder;
     this.tracking = !!(lh && rh && ls);
     if (!lh || !rh || !ls) return events;
     const hipY = (lh.y + rh.y) / 2;
@@ -298,9 +317,10 @@ export class RepCounter {
       progress: this.progress,
       avgRom: avg(this.romScores),
       avgForm: avg(this.formScores),
-      formOk: this.formOk,
+      formOk: this.currentFault === null,
       tracking: this.tracking,
       inMotion: this.inAttempt,
+      fault: this.currentFault,
     };
   }
 
@@ -314,4 +334,10 @@ export class RepCounter {
       formScore: Math.round(avg(this.formScores)),
     };
   }
+}
+
+function pickWorst(faults: (Fault & { id: string })[]): Fault | null {
+  if (!faults.length) return null;
+  const err = faults.find((f) => f.severity === "error");
+  return err ?? faults[0];
 }

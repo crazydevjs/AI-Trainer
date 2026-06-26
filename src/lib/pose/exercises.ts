@@ -39,7 +39,6 @@ const squatLike: RepConfig = {
   startAngle: 160,
   activeAngle: 100,
   idealAngle: 70,
-  posture: { kind: "torsoUpright", threshold: 55, cue: "Keep your chest up" },
   incompleteCue: "Go lower",
 };
 
@@ -58,7 +57,6 @@ const pushupLike: RepConfig = {
   startAngle: 160,
   activeAngle: 100,
   idealAngle: 80,
-  posture: { kind: "bodyLine", threshold: 150, cue: "Keep your body straight" },
   incompleteCue: "Go all the way down",
 };
 
@@ -95,7 +93,6 @@ const hingeLike: RepConfig = {
   startAngle: 165,
   activeAngle: 110,
   idealAngle: 90,
-  posture: { kind: "bodyLine", threshold: 130, cue: "Keep your back flat" },
   incompleteCue: "Stand up tall",
 };
 

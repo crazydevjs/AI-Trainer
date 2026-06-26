@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { getExerciseConfig } from "@/lib/pose/exercises";
+import { getFormChecks } from "@/lib/pose/form-rules";
 import { RepCounter, type CoachEvent, type CoachState } from "@/lib/pose/rep-counter";
 
 const SKELETON: [string, string][] = [
@@ -31,6 +32,7 @@ const INITIAL: CoachState = {
   formOk: true,
   tracking: false,
   inMotion: false,
+  fault: null,
 };
 
 export function usePoseTrainer({
@@ -44,7 +46,9 @@ export function usePoseTrainer({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const counterRef = useRef<RepCounter>(new RepCounter(getExerciseConfig(poseKey)));
+  const counterRef = useRef<RepCounter>(
+    new RepCounter(getExerciseConfig(poseKey), getFormChecks(poseKey))
+  );
   const detectorRef = useRef<any>(null);
   const rafRef = useRef<number>(0);
   const runningRef = useRef(running);

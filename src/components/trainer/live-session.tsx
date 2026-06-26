@@ -317,6 +317,26 @@ export function LiveSession({
         </div>
       )}
 
+      {/* Form fault: red screen border on a serious mistake */}
+      {status === "ready" && state.fault?.severity === "error" && (
+        <div className="pointer-events-none absolute inset-0 z-10 ring-4 ring-inset ring-ember/70" />
+      )}
+
+      {/* Live form status (green good / amber warn / red error) */}
+      {status === "ready" && state.inMotion && !resting && !paused && (
+        <div
+          className={`absolute left-1/2 top-16 z-20 -translate-x-1/2 rounded-full border px-4 py-2 text-sm font-semibold backdrop-blur ${
+            state.fault
+              ? state.fault.severity === "error"
+                ? "border-ember/60 bg-ember/20 text-chalk"
+                : "border-amber/50 bg-amber/20 text-amber"
+              : "border-neon/50 bg-neon/15 text-neon"
+          }`}
+        >
+          {state.fault ? state.fault.message : "Good form"}
+        </div>
+      )}
+
       {/* Floating cue */}
       <AnimatePresence>
         {cue && (
