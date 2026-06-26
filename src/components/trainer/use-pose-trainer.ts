@@ -3,7 +3,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { getExerciseConfig } from "@/lib/pose/exercises";
-import { getFormChecks } from "@/lib/pose/form-rules";
+import { getFormChecks, type Mode } from "@/lib/pose/form-rules";
+import { getCameraSetup } from "@/lib/pose/camera-setup";
 import { RepCounter, type CoachEvent, type CoachState } from "@/lib/pose/rep-counter";
 import { BodyLock, poseBox, type LockState, type Pose } from "@/lib/pose/body-lock";
 
@@ -38,6 +39,8 @@ const INITIAL_COACH: CoachState = {
   faultJoints: [],
   danger: false,
   color: "idle",
+  confidence: 0,
+  orientation: "unknown",
 };
 
 const INITIAL_LOCK: LockState = {
@@ -51,16 +54,21 @@ const INITIAL_LOCK: LockState = {
 export function usePoseTrainer({
   poseKey,
   running,
+  mode = "beginner",
   onEvent,
 }: {
   poseKey?: string | null;
   running: boolean;
+  mode?: Mode;
   onEvent?: (e: CoachEvent) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const counterRef = useRef<RepCounter>(
-    new RepCounter(getExerciseConfig(poseKey), getFormChecks(poseKey))
+    new RepCounter(getExerciseConfig(poseKey), getFormChecks(poseKey), {
+      mode,
+      requiredView: getCameraSetup(poseKey).view,
+    })
   );
   const lockRef = useRef<BodyLock>(new BodyLock());
   const lastPosesRef = useRef<Pose[]>([]);

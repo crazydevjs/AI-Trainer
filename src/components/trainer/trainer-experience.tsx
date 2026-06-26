@@ -38,6 +38,7 @@ export function TrainerExperience({
   const [sets, setSets] = useState(3);
   const [reps, setReps] = useState(isHold ? 30 : 10);
   const [rest, setRest] = useState(60);
+  const [mode, setMode] = useState<"beginner" | "advanced">("beginner");
   const [voiceOn, setVoiceOn] = useState(true);
   const [result, setResult] = useState<SessionResult | null>(null);
 
@@ -59,6 +60,7 @@ export function TrainerExperience({
         targetSets={sets}
         targetReps={reps}
         restSeconds={rest}
+        mode={mode}
         isHold={isHold}
         voiceOn={voiceOn}
         bodyWeightKg={bodyWeightKg}
@@ -156,6 +158,32 @@ export function TrainerExperience({
               onChange={(e) => setRest(Math.max(5, Number(e.target.value) || 0))}
               className="w-20 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 text-center text-sm text-chalk outline-none focus:border-ember/50"
             />
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <p className="mb-2 text-xs uppercase tracking-widest text-smoke">
+            Coaching mode
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {([
+              ["beginner", "Beginner", "Forgiving · encouraging"],
+              ["advanced", "Advanced", "Strict form standards"],
+            ] as const).map(([val, label, desc]) => (
+              <button
+                key={val}
+                type="button"
+                onClick={() => setMode(val)}
+                className={`rounded-2xl border p-3 text-left transition-all ${
+                  mode === val
+                    ? "border-ember/60 bg-ember/15"
+                    : "border-white/10 bg-white/[0.03] hover:border-white/25"
+                }`}
+              >
+                <div className="font-semibold text-chalk">{label}</div>
+                <div className="text-[11px] text-fog">{desc}</div>
+              </button>
+            ))}
           </div>
         </div>
 

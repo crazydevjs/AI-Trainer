@@ -40,6 +40,7 @@ export interface SessionResult {
   romScore: number;
   tempoScore: number;
   stabilityScore: number;
+  confidenceScore: number;
   completionPct: number;
   caloriesBurned: number;
   topMistakes: string[];
@@ -71,6 +72,7 @@ export function LiveSession({
   targetSets,
   targetReps,
   restSeconds,
+  mode,
   isHold,
   voiceOn,
   bodyWeightKg,
@@ -81,6 +83,7 @@ export function LiveSession({
   targetSets: number;
   targetReps: number;
   restSeconds: number;
+  mode: "beginner" | "advanced";
   isHold: boolean;
   voiceOn: boolean;
   bodyWeightKg: number;
@@ -98,6 +101,7 @@ export function LiveSession({
     form: number;
     depth: number;
     stability: number;
+    confidence: number;
     id: number;
   } | null>(null);
   const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>({
@@ -145,7 +149,13 @@ export function LiveSession({
         repTimes.current.push(performance.now());
         const phrase = coach.goodRep(e.quality);
         setCue({ text: phrase, id: Date.now(), tone: "praise" });
-        setRepQuality({ form: e.form, depth: e.rom, stability: e.stability, id: Date.now() });
+        setRepQuality({
+          form: e.form,
+          depth: e.rom,
+          stability: e.stability,
+          confidence: e.confidence,
+          id: Date.now(),
+        });
       } else if (e.type === "badrep") {
         const phrase = coach.badRep(e.reason);
         setCue({ text: phrase, id: Date.now(), tone: "bad" });
@@ -177,6 +187,7 @@ export function LiveSession({
   } = usePoseTrainer({
     poseKey: exercise.poseKey,
     running: !paused && !resting && !finishedRef.current,
+    mode,
     onEvent: handleEvent,
   });
 
@@ -235,6 +246,7 @@ export function LiveSession({
       romScore: s.romScore || (isHold ? 100 : 80),
       tempoScore,
       stabilityScore: s.stabilityScore,
+      confidenceScore: s.confidenceScore,
       completionPct,
       caloriesBurned: calories,
       topMistakes: s.topMistakes,
@@ -569,10 +581,11 @@ export function LiveSession({
         </div>
         {/* last rep quality */}
         {repQuality && !isHold && (
-          <div className="mt-3 flex gap-3 text-center text-xs">
+          <div className="mt-3 flex flex-wrap justify-center gap-3 text-center text-xs">
             <span className="text-fog">Form <b className="text-chalk">{repQuality.form}</b></span>
             <span className="text-fog">Depth <b className="text-chalk">{repQuality.depth}</b></span>
             <span className="text-fog">Stability <b className="text-chalk">{repQuality.stability}</b></span>
+            <span className="text-fog">Conf <b className="text-chalk">{repQuality.confidence}</b></span>
           </div>
         )}
         {state.invalidReps > 0 && (

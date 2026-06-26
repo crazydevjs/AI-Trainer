@@ -6,21 +6,28 @@ import {
   type KeypointMap,
 } from "./angles";
 import type { ExerciseConfig, RepConfig, PostureRule } from "./exercises";
-import type { FormCheck, Severity } from "./form-rules";
+import {
+  detectOrientation,
+  viewMatches,
+  type FormCheck,
+  type Mode,
+  type Orientation,
+  type Severity,
+  type View,
+} from "./form-rules";
 
 export interface Fault {
   message: string;
   severity: Severity;
 }
 
-/** A completed attempt (valid rep or rejected attempt) for per-set analysis. */
 export interface AttemptRecord {
   valid: boolean;
-  repNumber: number; // valid-rep number (0 if rejected)
+  repNumber: number;
   form: number;
   rom: number;
   stability: number;
-  faults: string[]; // fault messages seen this attempt
+  faults: string[];
 }
 
 export type CoachEvent =
@@ -30,6 +37,7 @@ export type CoachEvent =
       rom: number;
       form: number;
       stability: number;
+      confidence: number;
       quality: "perfect" | "good";
     }
   | { type: "badrep"; reason: string }
@@ -44,15 +52,15 @@ export interface CoachState {
   progress: number;
   avgRom: number | null;
   avgForm: number | null;
+  confidence: number; // running rep confidence 0..100
   formOk: boolean;
   tracking: boolean;
   inMotion: boolean;
   fault: Fault | null;
-  /** keypoints to highlight as problematic */
   faultJoints: string[];
-  /** an error-severity fault is currently active → Safety Mode */
   danger: boolean;
   color: FormColor;
+  orientation: Orientation;
 }
 
 export interface SessionSummary {
@@ -62,6 +70,7 @@ export interface SessionSummary {
   romScore: number;
   formScore: number;
   stabilityScore: number;
+  confidenceScore: number;
   topMistakes: string[];
 }
 
@@ -72,10 +81,12 @@ const DEPTH_FRAMES = 2;
 const REVERSAL = 0.18;
 const MIN_CONF = 0.3;
 const SMOOTH = 0.5;
-const FAULT_FRAMES = 4;
+const SUSTAIN = 7; // frames a status must persist to be "active" (~0.25s)
+const HIGH_CONF = 0.5; // min keypoint confidence to let an error reject a rep
 const CHECK_FROM = 0.35;
 
 const clamp = (n: number, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, n));
+const avg = (a: number[]) => (a.length ? a.reduce((s, n) => s + n, 0) / a.length : 0);
 
 function holdPosture(map: KeypointMap, side: string, rule: PostureRule) {
   const sh = map[`${side}_shoulder`];
@@ -85,14 +96,12 @@ function holdPosture(map: KeypointMap, side: string, rule: PostureRule) {
   return angle(sh, hip, knee) >= rule.threshold;
 }
 
-interface ActiveFault extends Fault {
-  id: string;
-  joints: string[];
-}
-
 export class RepCounter {
   private cfg: ExerciseConfig;
   private checks: FormCheck[];
+  private mode: Mode;
+  private requiredView: View;
+
   reps = 0;
   invalidReps = 0;
   holdSeconds = 0;
@@ -105,20 +114,26 @@ export class RepCounter {
   private smoothAngle = NaN;
   private progress = 0;
   private tracking = false;
+  private orientation: Orientation = "unknown";
   private lastRepTs = 0;
   private lastTs = 0;
   private lastCueTs = 0;
+  private lastCamCueTs = 0;
+  private mismatchFrames = 0;
 
-  // per-rep form state
-  private faultFrames: Record<string, number> = {};
-  private repFaults: Record<string, Severity> = {};
-  private warnedFault = new Set<string>();
-  private attemptFaults: string[] = []; // fault messages this attempt
+  // per-check run-length state (multi-frame)
+  private runStatus: Record<string, "ok" | "warn" | "error"> = {};
+  private runLen: Record<string, number> = {};
+  private activeId: string | null = null; // worst currently-active fault
+  private repErrors = new Set<string>(); // sustained high-confidence errors
+  private repWarns = new Set<string>();
+  private attemptFaults: string[] = [];
+  private confSamples: number[] = [];
   private currentFault: Fault | null = null;
   private currentJoints: string[] = [];
-  private attempts: AttemptRecord[] = [];
+  private runConfidence = 0;
 
-  // per-rep stability sampling
+  // stability sampling
   private swayMin = Infinity;
   private swayMax = -Infinity;
   private torsoSum = 0;
@@ -128,15 +143,27 @@ export class RepCounter {
   private romScores: number[] = [];
   private formScores: number[] = [];
   private stabilityScores: number[] = [];
+  private confScores: number[] = [];
   private faultCounts: Record<string, number> = {};
+  private attempts: AttemptRecord[] = [];
 
   private gPhase: "up" | "down" = "up";
   private gBaseline = 0;
   private holdPraiseAt = 0;
 
-  constructor(cfg: ExerciseConfig, checks: FormCheck[] = []) {
+  constructor(
+    cfg: ExerciseConfig,
+    checks: FormCheck[] = [],
+    opts: { mode?: Mode; requiredView?: View } = {}
+  ) {
     this.cfg = cfg;
     this.checks = checks;
+    this.mode = opts.mode ?? "beginner";
+    this.requiredView = opts.requiredView ?? "any";
+  }
+
+  getAttempts() {
+    return this.attempts;
   }
 
   private throttleCue(now: number, gap = 1500): boolean {
@@ -155,21 +182,19 @@ export class RepCounter {
   }
 
   private resetRep() {
-    this.faultFrames = {};
-    this.repFaults = {};
-    this.warnedFault.clear();
+    this.runStatus = {};
+    this.runLen = {};
+    this.activeId = null;
+    this.repErrors.clear();
+    this.repWarns.clear();
     this.attemptFaults = [];
+    this.confSamples = [];
     this.currentFault = null;
     this.currentJoints = [];
     this.swayMin = Infinity;
     this.swayMax = -Infinity;
     this.torsoSum = 0;
     this.torsoN = 0;
-  }
-
-  /** Full attempt log (valid + rejected) for per-set analysis. */
-  getAttempts(): AttemptRecord[] {
-    return this.attempts;
   }
 
   private sampleStability(map: KeypointMap) {
@@ -203,12 +228,17 @@ export class RepCounter {
     }
 
     const raw = angle(pts[0], pts[1], pts[2]);
-    this.smoothAngle = isNaN(this.smoothAngle)
-      ? raw
-      : this.smoothAngle * (1 - SMOOTH) + raw * SMOOTH;
+    this.smoothAngle = isNaN(this.smoothAngle) ? raw : this.smoothAngle * (1 - SMOOTH) + raw * SMOOTH;
     const ang = this.smoothAngle;
     const progress = (ang - cfg.startAngle) / (cfg.activeAngle - cfg.startAngle);
     this.progress = clamp(progress);
+    this.orientation = detectOrientation(map);
+
+    // mode-adjusted required depth
+    const dir = cfg.startAngle > cfg.activeAngle ? 1 : -1;
+    const ease = this.mode === "beginner" ? 12 : this.mode === "advanced" ? -6 : 0;
+    const requiredActive = cfg.activeAngle + dir * ease;
+    const reqProgress = (requiredActive - cfg.startAngle) / (cfg.activeAngle - cfg.startAngle);
 
     if (!this.inAttempt) {
       this.currentFault = null;
@@ -229,28 +259,37 @@ export class RepCounter {
     this.sampleStability(map);
 
     if (progress > CHECK_FROM) {
-      const active = this.evalChecks(map, side);
-      const worst = pickWorst(active);
-      this.currentFault = worst;
-      this.currentJoints = active.flatMap((f) => f.joints);
-      const fresh = active.find((f) => !this.warnedFault.has(f.id));
-      if (fresh) {
-        this.warnedFault.add(fresh.id);
-        this.repFaults[fresh.id] = fresh.severity;
-        this.faultCounts[fresh.message] = (this.faultCounts[fresh.message] ?? 0) + 1;
-        if (!this.attemptFaults.includes(fresh.message)) {
-          this.attemptFaults.push(fresh.message);
+      // rep confidence from the main joints
+      const frameConf = Math.min(...pts.map((p) => p.score ?? 0));
+      this.confSamples.push(frameConf);
+
+      // camera-angle awareness for the exercise's required view
+      if (
+        this.requiredView !== "any" &&
+        this.orientation !== "unknown" &&
+        !viewMatches(this.requiredView, this.orientation)
+      ) {
+        this.mismatchFrames++;
+        if (this.mismatchFrames > 18 && now - this.lastCamCueTs > 6000) {
+          this.lastCamCueTs = now;
+          events.push({
+            type: "cue",
+            message: `Turn ${this.requiredView}-on for accurate tracking`,
+            tone: "correct",
+          });
         }
-        if (this.throttleCue(now)) {
-          events.push({ type: "cue", message: fresh.message, tone: "correct" });
-        }
+      } else {
+        this.mismatchFrames = Math.max(0, this.mismatchFrames - 1);
       }
+
+      this.evalForm(map, side, now, events);
     } else {
       this.currentFault = null;
       this.currentJoints = [];
     }
 
-    if (progress >= 1) {
+    // depth (mode-adjusted) with multi-frame confirm
+    if (progress >= reqProgress) {
       this.framesAtDepth += 1;
       if (this.framesAtDepth >= DEPTH_FRAMES) this.reachedDepth = true;
     } else {
@@ -261,7 +300,7 @@ export class RepCounter {
       !this.reachedDepth &&
       !this.warnedDepth &&
       progress < this.maxProgress - REVERSAL &&
-      this.maxProgress < 1
+      this.maxProgress < reqProgress
     ) {
       this.warnedDepth = true;
       if (this.throttleCue(now, 1200)) {
@@ -277,15 +316,16 @@ export class RepCounter {
       this.currentJoints = [];
       const tooFast = this.lastRepTs > 0 && now - this.lastRepTs < 700;
 
-      const errorCount = Object.values(this.repFaults).filter((s) => s === "error").length;
-      const warnCount = Object.values(this.repFaults).filter((s) => s === "warn").length;
-      const form = Math.max(0, 100 - errorCount * 30 - warnCount * 12);
+      const repConfidence = avg(this.confSamples);
+      const errors = this.repErrors.size;
+      const warns = this.repWarns.size;
+      const form = Math.max(0, 100 - errors * 30 - warns * 12);
       const stability = this.computeStability();
-      const idealProgress =
-        (cfg.idealAngle - cfg.startAngle) / (cfg.activeAngle - cfg.startAngle);
+      const idealProgress = (cfg.idealAngle - cfg.startAngle) / (cfg.activeAngle - cfg.startAngle);
       const rom = Math.round(clamp(this.maxProgress / idealProgress) * 100);
+      const confPct = Math.round(repConfidence * 100);
 
-      // REJECT: depth
+      // REJECT: insufficient depth (both modes)
       if (!this.reachedDepth) {
         this.invalidReps += 1;
         this.faultCounts[cfg.incompleteCue] = (this.faultCounts[cfg.incompleteCue] ?? 0) + 1;
@@ -295,8 +335,8 @@ export class RepCounter {
         events.push({ type: "badrep", reason: cfg.incompleteCue });
         return events;
       }
-      // REJECT: unsafe form
-      if (errorCount > 0) {
+      // REJECT: unsafe form — only in Advanced, only sustained high-confidence errors
+      if (this.mode === "advanced" && errors > 0 && repConfidence >= HIGH_CONF) {
         const reason = this.firstErrorCue();
         this.invalidReps += 1;
         this.attempts.push({ valid: false, repNumber: 0, form, rom, stability, faults: this.attemptFaults });
@@ -305,18 +345,18 @@ export class RepCounter {
         return events;
       }
 
-      // VALID REP
+      // VALID REP (minor/borderline issues counted, with coaching already given)
       const quality: "perfect" | "good" =
         rom >= 90 && form >= 85 && stability >= 80 ? "perfect" : "good";
-
       this.reps += 1;
       this.romScores.push(rom);
       this.formScores.push(form);
       this.stabilityScores.push(stability);
+      this.confScores.push(confPct);
       this.attempts.push({ valid: true, repNumber: this.reps, form, rom, stability, faults: this.attemptFaults });
       this.lastRepTs = now;
       this.resetRep();
-      events.push({ type: "rep", reps: this.reps, rom, form, stability, quality });
+      events.push({ type: "rep", reps: this.reps, rom, form, stability, confidence: confPct, quality });
 
       if (tooFast && this.throttleCue(now, 1200)) {
         events.push({ type: "cue", message: "Slow down — control it", tone: "correct" });
@@ -326,27 +366,54 @@ export class RepCounter {
     return events;
   }
 
+  /** Evaluate all applicable checks; promote a status only after it persists. */
+  private evalForm(map: KeypointMap, side: "left" | "right", now: number, events: CoachEvent[]) {
+    let worst: { fault: Fault; joints: string[]; rank: number } | null = null;
+    for (const c of this.checks) {
+      if (!viewMatches(c.view, this.orientation)) continue;
+      const res = c.evaluate(map, side, this.mode);
+      if (!res) continue;
+
+      // demote a low-confidence error to a warning
+      const status = res.status === "error" && res.confidence < HIGH_CONF ? "warn" : res.status;
+
+      if (this.runStatus[c.id] === status) this.runLen[c.id] = (this.runLen[c.id] ?? 0) + 1;
+      else {
+        this.runStatus[c.id] = status;
+        this.runLen[c.id] = 1;
+      }
+
+      const active = (this.runLen[c.id] ?? 0) >= SUSTAIN && status !== "ok";
+      if (!active) continue;
+
+      // record the fault for this rep
+      if (status === "error" && res.confidence >= HIGH_CONF) this.repErrors.add(c.id);
+      else this.repWarns.add(c.id);
+
+      if (!this.attemptFaults.includes(c.cue)) {
+        this.attemptFaults.push(c.cue);
+        this.faultCounts[c.cue] = (this.faultCounts[c.cue] ?? 0) + 1;
+        if (this.throttleCue(now)) events.push({ type: "cue", message: c.cue, tone: "correct" });
+      }
+
+      const rank = status === "error" ? 2 : 1;
+      if (!worst || rank > worst.rank) {
+        worst = { fault: { message: c.cue, severity: status as Severity }, joints: c.joints(side), rank };
+      }
+    }
+    this.currentFault = worst?.fault ?? null;
+    this.currentJoints = worst?.joints ?? [];
+    this.runConfidence = this.confSamples.length ? this.confSamples[this.confSamples.length - 1] : 0;
+  }
+
   private computeStability(): number {
     if (this.torsoN === 0 || this.swayMax < this.swayMin) return 100;
     const torso = this.torsoSum / this.torsoN || 1;
-    const sway = this.swayMax - this.swayMin;
-    return Math.round(Math.max(0, Math.min(100, 100 - (sway / torso) * 120)));
-  }
-
-  private evalChecks(map: KeypointMap, side: "left" | "right"): ActiveFault[] {
-    const active: ActiveFault[] = [];
-    for (const c of this.checks) {
-      const good = c.test(map, side);
-      this.faultFrames[c.id] = good ? 0 : (this.faultFrames[c.id] ?? 0) + 1;
-      if ((this.faultFrames[c.id] ?? 0) >= FAULT_FRAMES) {
-        active.push({ id: c.id, message: c.cue, severity: c.severity, joints: c.joints(side) });
-      }
-    }
-    return active;
+    return Math.round(clamp(1 - ((this.swayMax - this.swayMin) / torso) * 1.2) * 100);
   }
 
   private firstErrorCue(): string {
-    for (const c of this.checks) if (this.repFaults[c.id] === "error") return c.cue;
+    for (const c of this.checks) if (this.repErrors.has(c.id)) return c.cue;
     return "Fix your form";
   }
 
@@ -360,7 +427,6 @@ export class RepCounter {
     );
     this.tracking = side !== null;
     if (!side) return events;
-
     const good = holdPosture(map, side, cfg.posture);
     this.currentFault = good ? null : { message: cfg.posture.cue, severity: "warn" };
     this.currentJoints = good ? [] : [`${side}_hip`];
@@ -372,11 +438,9 @@ export class RepCounter {
         events.push({ type: "cue", message: "Great hold. Stay strong.", tone: "praise" });
       }
     } else {
-      this.formScores.push(40);
+      this.formScores.push(60);
       this.faultCounts[cfg.posture.cue] = (this.faultCounts[cfg.posture.cue] ?? 0) + 1;
-      if (this.throttleCue(now)) {
-        events.push({ type: "cue", message: cfg.posture.cue, tone: "correct" });
-      }
+      if (this.throttleCue(now)) events.push({ type: "cue", message: cfg.posture.cue, tone: "correct" });
     }
     return events;
   }
@@ -399,14 +463,13 @@ export class RepCounter {
       this.gPhase = "up";
       this.reps += 1;
       this.lastRepTs = now;
-      events.push({ type: "rep", reps: this.reps, rom: 100, form: 100, stability: 100, quality: "good" });
+      events.push({ type: "rep", reps: this.reps, rom: 100, form: 100, stability: 100, confidence: 90, quality: "good" });
     }
     return events;
   }
 
   state(): CoachState {
-    const avg = (arr: number[]) =>
-      arr.length ? Math.round(arr.reduce((s, n) => s + n, 0) / arr.length) : null;
+    const a = (arr: number[]) => (arr.length ? Math.round(avg(arr)) : null);
     const danger = this.currentFault?.severity === "error";
     const color: FormColor = !this.inAttempt
       ? "idle"
@@ -420,8 +483,9 @@ export class RepCounter {
       invalidReps: this.invalidReps,
       holdSeconds: Math.floor(this.holdSeconds),
       progress: this.progress,
-      avgRom: avg(this.romScores),
-      avgForm: avg(this.formScores),
+      avgRom: a(this.romScores),
+      avgForm: a(this.formScores),
+      confidence: Math.round(this.runConfidence * 100),
       formOk: this.currentFault === null,
       tracking: this.tracking,
       inMotion: this.inAttempt,
@@ -429,16 +493,15 @@ export class RepCounter {
       faultJoints: this.currentJoints,
       danger,
       color,
+      orientation: this.orientation,
     };
   }
 
   summary(): SessionSummary {
-    const avg = (arr: number[]) =>
-      arr.length ? arr.reduce((s, n) => s + n, 0) / arr.length : 0;
     const topMistakes = Object.entries(this.faultCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 3)
-      .map(([msg]) => msg);
+      .map(([m]) => m);
     return {
       reps: this.reps,
       invalidReps: this.invalidReps,
@@ -446,13 +509,8 @@ export class RepCounter {
       romScore: Math.round(avg(this.romScores)),
       formScore: Math.round(avg(this.formScores)),
       stabilityScore: Math.round(avg(this.stabilityScores)) || 100,
+      confidenceScore: Math.round(avg(this.confScores)) || 0,
       topMistakes,
     };
   }
-}
-
-function pickWorst(faults: ActiveFault[]): Fault | null {
-  if (!faults.length) return null;
-  const err = faults.find((f) => f.severity === "error");
-  return err ?? faults[0];
 }
