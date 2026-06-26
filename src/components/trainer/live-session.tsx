@@ -9,6 +9,7 @@ import type { CoachEvent } from "@/lib/pose/rep-counter";
 import {
   getVoiceStatus,
   setVoiceEnabled,
+  speak,
   stopSpeaking,
   unlockVoice,
   type VoiceStatus,
@@ -89,8 +90,10 @@ export function LiveSession({
   }, []);
 
   function enableVoice() {
+    setVoiceEnabled(true);
     unlockVoice();
     setVoice(true);
+    speak("Voice on. Let's go.", true); // audible confirmation within the gesture
     setVoiceStatus(getVoiceStatus());
   }
 
