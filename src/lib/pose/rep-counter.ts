@@ -14,12 +14,22 @@ export interface Fault {
 }
 
 export type CoachEvent =
-  | { type: "rep"; reps: number; rom: number; form: number; quality: "perfect" | "good" }
+  | {
+      type: "rep";
+      reps: number;
+      rom: number;
+      form: number;
+      stability: number;
+      quality: "perfect" | "good";
+    }
   | { type: "badrep"; reason: string }
   | { type: "cue"; message: string; tone: "correct" | "praise" };
 
+export type FormColor = "green" | "amber" | "red" | "idle";
+
 export interface CoachState {
   reps: number;
+  invalidReps: number;
   holdSeconds: number;
   progress: number;
   avgRom: number | null;
@@ -27,8 +37,22 @@ export interface CoachState {
   formOk: boolean;
   tracking: boolean;
   inMotion: boolean;
-  /** current live form fault for the on-screen indicator */
   fault: Fault | null;
+  /** keypoints to highlight as problematic */
+  faultJoints: string[];
+  /** an error-severity fault is currently active → Safety Mode */
+  danger: boolean;
+  color: FormColor;
+}
+
+export interface SessionSummary {
+  reps: number;
+  invalidReps: number;
+  holdSeconds: number;
+  romScore: number;
+  formScore: number;
+  stabilityScore: number;
+  topMistakes: string[];
 }
 
 // --- tuning ---
@@ -38,8 +62,8 @@ const DEPTH_FRAMES = 2;
 const REVERSAL = 0.18;
 const MIN_CONF = 0.3;
 const SMOOTH = 0.5;
-const FAULT_FRAMES = 4; // a fault must persist this many frames (anti-jitter)
-const CHECK_FROM = 0.35; // only judge form once into the movement
+const FAULT_FRAMES = 4;
+const CHECK_FROM = 0.35;
 
 const clamp = (n: number, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, n));
 
@@ -51,10 +75,16 @@ function holdPosture(map: KeypointMap, side: string, rule: PostureRule) {
   return angle(sh, hip, knee) >= rule.threshold;
 }
 
+interface ActiveFault extends Fault {
+  id: string;
+  joints: string[];
+}
+
 export class RepCounter {
   private cfg: ExerciseConfig;
   private checks: FormCheck[];
   reps = 0;
+  invalidReps = 0;
   holdSeconds = 0;
 
   private inAttempt = false;
@@ -69,19 +99,28 @@ export class RepCounter {
   private lastTs = 0;
   private lastCueTs = 0;
 
-  // form-fault tracking (per rep)
+  // per-rep form state
   private faultFrames: Record<string, number> = {};
   private repFaults: Record<string, Severity> = {};
   private warnedFault = new Set<string>();
   private currentFault: Fault | null = null;
+  private currentJoints: string[] = [];
 
+  // per-rep stability sampling
+  private swayMin = Infinity;
+  private swayMax = -Infinity;
+  private torsoSum = 0;
+  private torsoN = 0;
+
+  // session stats
   private romScores: number[] = [];
   private formScores: number[] = [];
+  private stabilityScores: number[] = [];
+  private faultCounts: Record<string, number> = {};
 
   private gPhase: "up" | "down" = "up";
   private gBaseline = 0;
   private holdPraiseAt = 0;
-  private holdFormOk = true;
 
   constructor(cfg: ExerciseConfig, checks: FormCheck[] = []) {
     this.cfg = cfg;
@@ -108,6 +147,25 @@ export class RepCounter {
     this.repFaults = {};
     this.warnedFault.clear();
     this.currentFault = null;
+    this.currentJoints = [];
+    this.swayMin = Infinity;
+    this.swayMax = -Infinity;
+    this.torsoSum = 0;
+    this.torsoN = 0;
+  }
+
+  private sampleStability(map: KeypointMap) {
+    const lh = map.left_hip;
+    const rh = map.right_hip;
+    const ls = map.left_shoulder;
+    if (!lh || !rh) return;
+    const cx = (lh.x + rh.x) / 2;
+    this.swayMin = Math.min(this.swayMin, cx);
+    this.swayMax = Math.max(this.swayMax, cx);
+    if (ls) {
+      this.torsoSum += Math.abs(ls.y - lh.y);
+      this.torsoN += 1;
+    }
   }
 
   private updateRep(cfg: RepConfig, map: KeypointMap, now: number): CoachEvent[] {
@@ -136,6 +194,7 @@ export class RepCounter {
 
     if (!this.inAttempt) {
       this.currentFault = null;
+      this.currentJoints = [];
       if (progress > ENTER) {
         this.inAttempt = true;
         this.maxProgress = progress;
@@ -149,24 +208,25 @@ export class RepCounter {
 
     // --- in an attempt ---
     this.maxProgress = Math.max(this.maxProgress, progress);
+    this.sampleStability(map);
 
-    // evaluate form faults once into the movement
     if (progress > CHECK_FROM) {
       const active = this.evalChecks(map, side);
-      this.currentFault = pickWorst(active);
-      // announce a newly-seen fault (errors first), once per rep per fault
-      const fresh = active.find(
-        (f) => !this.warnedFault.has(f.id)
-      );
+      const worst = pickWorst(active);
+      this.currentFault = worst;
+      this.currentJoints = active.flatMap((f) => f.joints);
+      const fresh = active.find((f) => !this.warnedFault.has(f.id));
       if (fresh) {
         this.warnedFault.add(fresh.id);
         this.repFaults[fresh.id] = fresh.severity;
+        this.faultCounts[fresh.message] = (this.faultCounts[fresh.message] ?? 0) + 1;
         if (this.throttleCue(now)) {
           events.push({ type: "cue", message: fresh.message, tone: "correct" });
         }
       }
     } else {
       this.currentFault = null;
+      this.currentJoints = [];
     }
 
     if (progress >= 1) {
@@ -176,7 +236,6 @@ export class RepCounter {
       this.framesAtDepth = 0;
     }
 
-    // coming up before reaching depth → coach immediately
     if (
       !this.reachedDepth &&
       !this.warnedDepth &&
@@ -194,21 +253,26 @@ export class RepCounter {
       this.inAttempt = false;
       this.progress = 0;
       this.currentFault = null;
+      this.currentJoints = [];
       const tooFast = this.lastRepTs > 0 && now - this.lastRepTs < 700;
 
-      const errors = Object.values(this.repFaults).filter((s) => s === "error").length;
-      const warns = Object.values(this.repFaults).filter((s) => s === "warn").length;
-      const form = Math.max(0, 100 - errors * 30 - warns * 12);
+      const errorCount = Object.values(this.repFaults).filter((s) => s === "error").length;
+      const warnCount = Object.values(this.repFaults).filter((s) => s === "warn").length;
+      const form = Math.max(0, 100 - errorCount * 30 - warnCount * 12);
+      const stability = this.computeStability();
 
-      // REJECT: insufficient depth
+      // REJECT: depth
       if (!this.reachedDepth) {
+        this.invalidReps += 1;
+        this.faultCounts[cfg.incompleteCue] = (this.faultCounts[cfg.incompleteCue] ?? 0) + 1;
         this.resetRep();
         events.push({ type: "badrep", reason: cfg.incompleteCue });
         return events;
       }
-      // REJECT: unsafe form (an error-severity fault persisted)
-      if (errors > 0) {
+      // REJECT: unsafe form
+      if (errorCount > 0) {
         const reason = this.firstErrorCue();
+        this.invalidReps += 1;
         this.resetRep();
         events.push({ type: "badrep", reason });
         return events;
@@ -219,14 +283,15 @@ export class RepCounter {
         (cfg.idealAngle - cfg.startAngle) / (cfg.activeAngle - cfg.startAngle);
       const rom = Math.round(clamp(this.maxProgress / idealProgress) * 100);
       const quality: "perfect" | "good" =
-        rom >= 90 && form >= 85 ? "perfect" : "good";
+        rom >= 90 && form >= 85 && stability >= 80 ? "perfect" : "good";
 
       this.reps += 1;
       this.romScores.push(rom);
       this.formScores.push(form);
+      this.stabilityScores.push(stability);
       this.lastRepTs = now;
       this.resetRep();
-      events.push({ type: "rep", reps: this.reps, rom, form, quality });
+      events.push({ type: "rep", reps: this.reps, rom, form, stability, quality });
 
       if (tooFast && this.throttleCue(now, 1200)) {
         events.push({ type: "cue", message: "Slow down — control it", tone: "correct" });
@@ -236,22 +301,27 @@ export class RepCounter {
     return events;
   }
 
-  private evalChecks(map: KeypointMap, side: "left" | "right"): (Fault & { id: string })[] {
-    const active: (Fault & { id: string })[] = [];
+  private computeStability(): number {
+    if (this.torsoN === 0 || this.swayMax < this.swayMin) return 100;
+    const torso = this.torsoSum / this.torsoN || 1;
+    const sway = this.swayMax - this.swayMin;
+    return Math.round(Math.max(0, Math.min(100, 100 - (sway / torso) * 120)));
+  }
+
+  private evalChecks(map: KeypointMap, side: "left" | "right"): ActiveFault[] {
+    const active: ActiveFault[] = [];
     for (const c of this.checks) {
       const good = c.test(map, side);
       this.faultFrames[c.id] = good ? 0 : (this.faultFrames[c.id] ?? 0) + 1;
       if ((this.faultFrames[c.id] ?? 0) >= FAULT_FRAMES) {
-        active.push({ id: c.id, message: c.cue, severity: c.severity });
+        active.push({ id: c.id, message: c.cue, severity: c.severity, joints: c.joints(side) });
       }
     }
     return active;
   }
 
   private firstErrorCue(): string {
-    for (const c of this.checks) {
-      if (this.repFaults[c.id] === "error") return c.cue;
-    }
+    for (const c of this.checks) if (this.repFaults[c.id] === "error") return c.cue;
     return "Fix your form";
   }
 
@@ -267,8 +337,8 @@ export class RepCounter {
     if (!side) return events;
 
     const good = holdPosture(map, side, cfg.posture);
-    this.holdFormOk = good;
     this.currentFault = good ? null : { message: cfg.posture.cue, severity: "warn" };
+    this.currentJoints = good ? [] : [`${side}_hip`];
     if (good) {
       this.holdSeconds += dt;
       this.formScores.push(100);
@@ -278,6 +348,7 @@ export class RepCounter {
       }
     } else {
       this.formScores.push(40);
+      this.faultCounts[cfg.posture.cue] = (this.faultCounts[cfg.posture.cue] ?? 0) + 1;
       if (this.throttleCue(now)) {
         events.push({ type: "cue", message: cfg.posture.cue, tone: "correct" });
       }
@@ -303,7 +374,7 @@ export class RepCounter {
       this.gPhase = "up";
       this.reps += 1;
       this.lastRepTs = now;
-      events.push({ type: "rep", reps: this.reps, rom: 100, form: 100, quality: "good" });
+      events.push({ type: "rep", reps: this.reps, rom: 100, form: 100, stability: 100, quality: "good" });
     }
     return events;
   }
@@ -311,8 +382,17 @@ export class RepCounter {
   state(): CoachState {
     const avg = (arr: number[]) =>
       arr.length ? Math.round(arr.reduce((s, n) => s + n, 0) / arr.length) : null;
+    const danger = this.currentFault?.severity === "error";
+    const color: FormColor = !this.inAttempt
+      ? "idle"
+      : this.currentFault
+        ? this.currentFault.severity === "error"
+          ? "red"
+          : "amber"
+        : "green";
     return {
       reps: this.reps,
+      invalidReps: this.invalidReps,
       holdSeconds: Math.floor(this.holdSeconds),
       progress: this.progress,
       avgRom: avg(this.romScores),
@@ -321,22 +401,32 @@ export class RepCounter {
       tracking: this.tracking,
       inMotion: this.inAttempt,
       fault: this.currentFault,
+      faultJoints: this.currentJoints,
+      danger,
+      color,
     };
   }
 
-  summary() {
+  summary(): SessionSummary {
     const avg = (arr: number[]) =>
       arr.length ? arr.reduce((s, n) => s + n, 0) / arr.length : 0;
+    const topMistakes = Object.entries(this.faultCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([msg]) => msg);
     return {
       reps: this.reps,
+      invalidReps: this.invalidReps,
       holdSeconds: Math.floor(this.holdSeconds),
       romScore: Math.round(avg(this.romScores)),
       formScore: Math.round(avg(this.formScores)),
+      stabilityScore: Math.round(avg(this.stabilityScores)) || 100,
+      topMistakes,
     };
   }
 }
 
-function pickWorst(faults: (Fault & { id: string })[]): Fault | null {
+function pickWorst(faults: ActiveFault[]): Fault | null {
   if (!faults.length) return null;
   const err = faults.find((f) => f.severity === "error");
   return err ?? faults[0];

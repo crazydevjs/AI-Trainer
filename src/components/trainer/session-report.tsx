@@ -3,7 +3,17 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Flame, RotateCcw, Sparkles, Timer, TrendingUp, Trophy } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Flame,
+  RotateCcw,
+  Sparkles,
+  Timer,
+  TrendingUp,
+  Trophy,
+  XCircle,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProgressRing } from "@/components/ui/progress-ring";
 import { speak } from "@/lib/voice";
@@ -120,18 +130,44 @@ export function SessionReport({
         )}
 
         {/* Component scores */}
-        <div className="mt-8 grid grid-cols-3 gap-3">
+        <div className="mt-8 grid grid-cols-4 gap-3">
           <Bar label="Form" value={result.formScore} />
-          <Bar label="Range" value={result.romScore} />
+          <Bar label="Depth" value={result.romScore} />
+          <Bar label="Stability" value={result.stabilityScore} />
           <Bar label="Tempo" value={result.tempoScore} />
         </div>
 
-        {/* Quick stats */}
+        {/* Rep breakdown */}
         <div className="mt-4 grid grid-cols-3 gap-3">
-          <Stat icon={<TrendingUp className="h-4 w-4 text-volt" />} value={`${result.totalReps}`} label="reps" />
+          <Stat icon={<CheckCircle2 className="h-4 w-4 text-neon" />} value={`${result.totalReps}`} label="correct reps" />
+          <Stat icon={<XCircle className="h-4 w-4 text-ember" />} value={`${result.invalidReps}`} label="invalid reps" />
+          <Stat icon={<TrendingUp className="h-4 w-4 text-volt" />} value={`${result.formScore}%`} label="avg form" />
+        </div>
+
+        {/* Quick stats */}
+        <div className="mt-3 grid grid-cols-3 gap-3">
           <Stat icon={<Flame className="h-4 w-4 text-flame" />} value={`${result.caloriesBurned}`} label="kcal" />
           <Stat icon={<Timer className="h-4 w-4 text-neon" />} value={fmt(result.durationSec)} label="time" />
+          <Stat icon={<TrendingUp className="h-4 w-4 text-amber" />} value={`${result.stabilityScore}%`} label="stability" />
         </div>
+
+        {/* Most common mistakes */}
+        {result.topMistakes.length > 0 && (
+          <div className="mt-4 rounded-2xl border border-amber/20 bg-amber/[0.06] p-5">
+            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-widest text-amber">
+              <AlertTriangle className="h-4 w-4" />
+              Most common mistakes
+            </h2>
+            <ul className="space-y-2">
+              {result.topMistakes.map((m, i) => (
+                <li key={i} className="flex gap-2 text-sm text-fog">
+                  <span className="text-amber">•</span>
+                  {m}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* AI feedback */}
         <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-5">

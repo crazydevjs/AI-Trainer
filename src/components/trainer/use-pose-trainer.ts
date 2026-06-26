@@ -26,6 +26,7 @@ export type TrainerStatus = "loading" | "ready" | "error";
 
 const INITIAL_COACH: CoachState = {
   reps: 0,
+  invalidReps: 0,
   holdSeconds: 0,
   progress: 0,
   avgRom: null,
@@ -34,6 +35,9 @@ const INITIAL_COACH: CoachState = {
   tracking: false,
   inMotion: false,
   fault: null,
+  faultJoints: [],
+  danger: false,
+  color: "idle",
 };
 
 const INITIAL_LOCK: LockState = {
@@ -142,13 +146,16 @@ export function usePoseTrainer({
           }
 
           const locked = lock.update(poses, now, vw, vh);
-          draw(canvas, video, poses, lock.lockedId, lock.confidence);
 
+          let formView: FormView | undefined;
           if (locked && runningRef.current) {
             const evts = counter.update(locked.keypoints, now);
             for (const e of evts) onEventRef.current?.(e);
-            setState(counter.state());
+            const cs = counter.state();
+            setState(cs);
+            formView = { color: cs.color, faultJoints: new Set(cs.faultJoints) };
           }
+          draw(canvas, video, poses, lock.lockedId, lock.confidence, formView);
           if (now - lastLockEmit.current > 150) {
             lastLockEmit.current = now;
             setLockState(lock.state());
@@ -221,13 +228,26 @@ export function usePoseTrainer({
   };
 }
 
+interface FormView {
+  color: "green" | "amber" | "red" | "idle";
+  faultJoints: Set<string>;
+}
+
+const COLORS = {
+  green: "rgba(43,255,136,0.9)",
+  amber: "rgba(255,194,75,0.95)",
+  red: "rgba(255,59,48,0.95)",
+  idle: "rgba(255,122,24,0.9)",
+};
+
 // ---- drawing (canvas is NOT css-mirrored; we flip x here so labels read normally) ----
 function draw(
   canvas: HTMLCanvasElement,
   video: HTMLVideoElement,
   poses: Pose[],
   lockedId: number | null,
-  confidence: number
+  confidence: number,
+  formView?: FormView
 ) {
   const w = video.videoWidth || 640;
   const h = video.videoHeight || 480;
@@ -255,15 +275,19 @@ function draw(
       ctx.fillStyle = "rgba(43,255,136,0.95)";
       ctx.fillText(`ACTIVE USER · ${confidence}%`, left, Math.max(16, box.yMin - 8));
 
-      // skeleton (locked user only)
+      // skeleton (locked user only) — colored by form quality
       const map: Record<string, any> = {};
       for (const k of p.keypoints) if (k.name) map[k.name] = k;
+      const color = COLORS[formView?.color ?? "idle"];
+      const badJoints = formView?.faultJoints ?? new Set<string>();
       ctx.lineWidth = 4;
-      ctx.strokeStyle = "rgba(255,122,24,0.9)";
+      ctx.strokeStyle = color;
       for (const [a, b] of SKELETON) {
         const ka = map[a];
         const kb = map[b];
         if (ka?.score > 0.3 && kb?.score > 0.3) {
+          // a limb touching a faulted joint turns red
+          ctx.strokeStyle = badJoints.has(a) || badJoints.has(b) ? COLORS.red : color;
           ctx.beginPath();
           ctx.moveTo(fx(ka.x), ka.y);
           ctx.lineTo(fx(kb.x), kb.y);
@@ -272,9 +296,10 @@ function draw(
       }
       for (const k of p.keypoints) {
         if ((k.score ?? 0) > 0.3) {
+          const bad = k.name && badJoints.has(k.name);
           ctx.beginPath();
-          ctx.arc(fx(k.x), k.y, 5, 0, Math.PI * 2);
-          ctx.fillStyle = "#2bd4ff";
+          ctx.arc(fx(k.x), k.y, bad ? 9 : 5, 0, Math.PI * 2);
+          ctx.fillStyle = bad ? COLORS.red : "#2bd4ff";
           ctx.fill();
         }
       }

@@ -31,11 +31,14 @@ import type { TrainerExercise } from "./trainer-experience";
 export interface SessionResult {
   durationSec: number;
   totalReps: number;
+  invalidReps: number;
   formScore: number;
   romScore: number;
   tempoScore: number;
+  stabilityScore: number;
   completionPct: number;
   caloriesBurned: number;
+  topMistakes: string[];
   sets: { setNumber: number; reps: number; formScore?: number; romScore?: number }[];
 }
 
@@ -75,6 +78,12 @@ export function LiveSession({
   const [cue, setCue] = useState<Cue | null>(null);
   const [voice, setVoice] = useState(voiceOn);
   const [showDebug, setShowDebug] = useState(false);
+  const [repQuality, setRepQuality] = useState<{
+    form: number;
+    depth: number;
+    stability: number;
+    id: number;
+  } | null>(null);
   const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>({
     supported: true,
     unlocked: false,
@@ -115,6 +124,7 @@ export function LiveSession({
         repTimes.current.push(performance.now());
         const phrase = coach.goodRep(e.quality);
         setCue({ text: phrase, id: Date.now(), tone: "praise" });
+        setRepQuality({ form: e.form, depth: e.rom, stability: e.stability, id: Date.now() });
       } else if (e.type === "badrep") {
         const phrase = coach.badRep(e.reason);
         setCue({ text: phrase, id: Date.now(), tone: "bad" });
@@ -198,11 +208,14 @@ export function LiveSession({
     onFinish({
       durationSec,
       totalReps: isHold ? s.holdSeconds : s.reps,
+      invalidReps: s.invalidReps,
       formScore: s.formScore || 80,
       romScore: s.romScore || (isHold ? 100 : 80),
       tempoScore,
+      stabilityScore: s.stabilityScore,
       completionPct,
       caloriesBurned: calories,
+      topMistakes: s.topMistakes,
       sets:
         completedSets.current.length > 0
           ? completedSets.current
@@ -453,7 +466,7 @@ export function LiveSession({
           >
             {cue.tone === "bad" && (
               <p className="mb-0.5 text-[10px] font-bold uppercase tracking-[0.2em] text-ember">
-                Rep not counted
+                Rep invalid · not counted
               </p>
             )}
             <span className="text-lg font-semibold">{cue.text}</span>
@@ -494,6 +507,17 @@ export function LiveSession({
             </span>
           </div>
         </div>
+        {/* last rep quality */}
+        {repQuality && !isHold && (
+          <div className="mt-3 flex gap-3 text-center text-xs">
+            <span className="text-fog">Form <b className="text-chalk">{repQuality.form}</b></span>
+            <span className="text-fog">Depth <b className="text-chalk">{repQuality.depth}</b></span>
+            <span className="text-fog">Stability <b className="text-chalk">{repQuality.stability}</b></span>
+          </div>
+        )}
+        {state.invalidReps > 0 && (
+          <p className="mt-1 text-xs text-ember">{state.invalidReps} invalid rep{state.invalidReps === 1 ? "" : "s"}</p>
+        )}
       </div>
 
       {/* Rest overlay */}
@@ -532,6 +556,16 @@ export function LiveSession({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Safety Mode strip — reps won't count until form is fixed */}
+      {status === "ready" && state.danger && !resting && !paused && (
+        <div className="absolute inset-x-0 bottom-24 z-20 flex justify-center px-4">
+          <div className="flex items-center gap-2 rounded-2xl border border-ember/60 bg-ember/25 px-5 py-3 text-center text-sm font-semibold text-chalk backdrop-blur-xl">
+            <span className="text-lg">⚠</span>
+            Safety: {state.fault?.message}. Reps won&apos;t count until you fix it.
+          </div>
+        </div>
+      )}
 
       {/* Bottom controls */}
       <div className="absolute inset-x-0 bottom-0 z-20 flex items-center justify-center gap-3 p-5 sm:p-8">

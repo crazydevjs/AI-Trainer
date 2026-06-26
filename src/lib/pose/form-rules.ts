@@ -1,7 +1,7 @@
 // Exercise-specific real-time form checks, evaluated each frame during a rep.
-// Detectors use MoveNet 2D keypoints, so we only include faults that are
-// reliably visible from a single webcam (depth, lean, knee valgus, body line,
-// balance). Each fault has a simple-English cue, a severity, and a color.
+// Detectors use MoveNet 2D keypoints. Back-rounding is approximated via the
+// ear–shoulder–hip angle (works best from a side view); knee valgus, lean,
+// body-line and balance are reliable from the front.
 
 import { angle, angleFromVertical, type Keypoint, type KeypointMap } from "./angles";
 
@@ -11,20 +11,22 @@ export interface FormCheck {
   id: string;
   cue: string;
   severity: Severity;
-  /** true = good, false = fault. Return true when data is missing (no false alarms). */
+  /** keypoints to highlight red when this fault is active */
+  joints: (side: "left" | "right") => string[];
+  /** true = good, false = fault. Return true when data is missing. */
   test: (map: KeypointMap, side: "left" | "right") => boolean;
 }
 
 const ok = (k?: Keypoint) => (k?.score ?? 0) >= 0.3;
 
-// --- reusable detectors ---------------------------------------------------
+// --- detectors ------------------------------------------------------------
 
-/** Torso (shoulder→hip) must stay reasonably upright; flags excessive lean. */
-function chestUp(maxLean: number, severity: Severity = "warn"): FormCheck {
+function chestUp(maxLean: number, severity: Severity = "warn", cue = "Keep your chest up"): FormCheck {
   return {
     id: "chest",
-    cue: "Keep your chest up",
+    cue,
     severity,
+    joints: (s) => [`${s}_shoulder`, `${s}_hip`],
     test: (m, s) => {
       const sh = m[`${s}_shoulder`];
       const hip = m[`${s}_hip`];
@@ -34,12 +36,31 @@ function chestUp(maxLean: number, severity: Severity = "warn"): FormCheck {
   };
 }
 
-/** shoulder-hip-knee should stay straight (no hip sag / pike). */
+/** Spine straightness via ear/nose – shoulder – hip. Lower angle = rounded/hunched. */
+function backStraight(minAngle: number, severity: Severity, cue = "Keep your back straight"): FormCheck {
+  return {
+    id: "back",
+    cue,
+    severity,
+    joints: (s) => [`${s}_shoulder`, `${s}_hip`],
+    test: (m, s) => {
+      const sh = m[`${s}_shoulder`];
+      const hip = m[`${s}_hip`];
+      if (!ok(sh) || !ok(hip)) return true;
+      const head = ok(m[`${s}_ear`]) ? m[`${s}_ear`] : ok(m.nose) ? m.nose : null;
+      if (!head) return true;
+      return angle(head, sh, hip) >= minAngle;
+    },
+  };
+}
+
+/** shoulder-hip-knee straight (no hip sag / pike). */
 function bodyStraight(minAngle: number, cue: string, severity: Severity = "warn"): FormCheck {
   return {
     id: "bodyline",
     cue,
     severity,
+    joints: (s) => [`${s}_hip`],
     test: (m, s) => {
       const sh = m[`${s}_shoulder`];
       const hip = m[`${s}_hip`];
@@ -50,12 +71,13 @@ function bodyStraight(minAngle: number, cue: string, severity: Severity = "warn"
   };
 }
 
-/** Knees must stay tracking over the feet (front view) — flags valgus. */
+/** Knees tracking over feet (front view) — flags valgus collapse. */
 function kneesOut(minRatio: number): FormCheck {
   return {
     id: "knees",
     cue: "Push your knees out",
     severity: "error",
+    joints: () => ["left_knee", "right_knee"],
     test: (m) => {
       const lk = m.left_knee;
       const rk = m.right_knee;
@@ -70,12 +92,13 @@ function kneesOut(minRatio: number): FormCheck {
   };
 }
 
-/** Hips should stay level (balance / even weight). */
+/** Hips level (balance / even weight). */
 function balanced(maxDelta: number): FormCheck {
   return {
     id: "balance",
-    cue: "Stay balanced",
+    cue: "Stay balanced — even on both sides",
     severity: "warn",
+    joints: () => ["left_hip", "right_hip"],
     test: (m) => {
       const lh = m.left_hip;
       const rh = m.right_hip;
@@ -89,19 +112,32 @@ function balanced(maxDelta: number): FormCheck {
 
 // --- per-exercise rule sets ----------------------------------------------
 
-const SQUAT = [kneesOut(0.6), chestUp(62, "warn"), balanced(0.18)];
-const PUSHUP = [bodyStraight(150, "Keep your body straight — don't drop your hips", "warn")];
-const PLANK = [bodyStraight(150, "Keep your body straight", "warn")];
+const SQUAT = [
+  kneesOut(0.6),
+  backStraight(146, "error", "Straighten your back — don't round it"),
+  chestUp(62, "warn", "Keep your chest up"),
+  balanced(0.18),
+];
 
 const FORM_CHECKS: Record<string, FormCheck[]> = {
   squat: SQUAT,
   "front-squat": SQUAT,
-  lunge: [chestUp(58, "warn"), balanced(0.2)],
-  "push-up": PUSHUP,
-  "bench-press": PUSHUP,
-  plank: PLANK,
-  // hinge/press/pull movements: depth gate + tempo only (back rounding can't be
-  // reliably measured in 2D, so we don't false-reject on it).
+  lunge: [chestUp(58, "warn"), backStraight(150, "warn"), balanced(0.2)],
+  "push-up": [
+    bodyStraight(150, "Keep your body straight — don't drop your hips", "error"),
+  ],
+  "bench-press": [], // lying: 2D form checks unreliable; depth + tempo only
+  deadlift: [
+    backStraight(150, "error", "Keep your back straight — chest up, flat spine"),
+    balanced(0.2),
+  ],
+  rdl: [
+    backStraight(150, "error", "Keep your back straight — flat spine"),
+  ],
+  "shoulder-press": [
+    chestUp(30, "warn", "Keep your torso tall — don't lean back"),
+  ],
+  plank: [bodyStraight(150, "Keep your body straight", "warn")],
 };
 
 export function getFormChecks(poseKey?: string | null): FormCheck[] {
