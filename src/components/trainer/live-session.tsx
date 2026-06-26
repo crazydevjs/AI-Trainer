@@ -2,7 +2,18 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Loader2, Pause, Play, Square, Volume2, VolumeX } from "lucide-react";
+import {
+  Bug,
+  Loader2,
+  Lock,
+  Pause,
+  Play,
+  Square,
+  Target,
+  Users,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePoseTrainer } from "./use-pose-trainer";
 import type { CoachEvent } from "@/lib/pose/rep-counter";
@@ -63,6 +74,7 @@ export function LiveSession({
   const [currentSet, setCurrentSet] = useState(1);
   const [cue, setCue] = useState<Cue | null>(null);
   const [voice, setVoice] = useState(voiceOn);
+  const [showDebug, setShowDebug] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>({
     supported: true,
     unlocked: false,
@@ -119,12 +131,22 @@ export function LiveSession({
   );
 
   // running only when not paused, not resting, not finished
-  const { videoRef, canvasRef, status, errorMsg, state, getSummary } =
-    usePoseTrainer({
-      poseKey: exercise.poseKey,
-      running: !paused && !resting && !finishedRef.current,
-      onEvent: handleEvent,
-    });
+  const {
+    videoRef,
+    canvasRef,
+    status,
+    errorMsg,
+    state,
+    lockState,
+    lockCenter,
+    lockAtClient,
+    resetLock,
+    getSummary,
+  } = usePoseTrainer({
+    poseKey: exercise.poseKey,
+    running: !paused && !resting && !finishedRef.current,
+    onEvent: handleEvent,
+  });
 
   // Greet on first ready + keep the coach talking during quiet stretches.
   useEffect(() => {
@@ -252,10 +274,19 @@ export function LiveSession({
       />
       <canvas
         ref={canvasRef}
-        className="absolute inset-0 h-full w-full -scale-x-100 object-cover"
+        className="absolute inset-0 h-full w-full object-cover"
       />
       {/* darkening vignette for HUD legibility */}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/70" />
+
+      {/* Click-to-lock layer (below HUD controls) */}
+      {status === "ready" && (
+        <div
+          className="absolute inset-0 z-10"
+          onClick={(e) => lockAtClient(e.clientX, e.clientY)}
+          title="Tap a person to lock onto them"
+        />
+      )}
 
       {/* Loading / error */}
       {status !== "ready" && (
@@ -289,6 +320,24 @@ export function LiveSession({
           </h2>
         </div>
         <div className="flex gap-2">
+          <div
+            className={`flex items-center gap-1.5 rounded-2xl border px-3 py-2 text-center backdrop-blur ${
+              lockState.status === "locked"
+                ? "border-neon/50 bg-neon/10 text-neon"
+                : lockState.status === "searching"
+                  ? "border-amber/50 bg-amber/10 text-amber"
+                  : "border-white/15 bg-black/40 text-fog"
+            }`}
+          >
+            <Lock className="h-4 w-4" />
+            <span className="font-display text-sm font-bold">
+              {lockState.status === "locked"
+                ? `${lockState.confidence}%`
+                : lockState.status === "searching"
+                  ? "···"
+                  : "—"}
+            </span>
+          </div>
           <ScoreChip label="Form" value={state.avgForm} />
           <ScoreChip label="ROM" value={state.avgRom} />
         </div>
@@ -336,6 +385,58 @@ export function LiveSession({
           {state.fault ? state.fault.message : "Good form"}
         </div>
       )}
+
+      {/* Re-acquiring banner (occlusion / temporarily left) */}
+      {status === "ready" && lockState.status === "searching" && (
+        <div className="absolute left-1/2 top-28 z-20 -translate-x-1/2 flex items-center gap-2 rounded-full border border-amber/40 bg-amber/15 px-4 py-2 text-sm text-amber backdrop-blur">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Re-acquiring you… ({lockState.lostFrames})
+        </div>
+      )}
+
+      {/* Debug panel */}
+      {status === "ready" && showDebug && (
+        <div className="absolute left-5 top-28 z-20 space-y-1 rounded-2xl border border-white/15 bg-black/70 p-4 font-mono text-xs text-fog backdrop-blur">
+          <p className="mb-1 font-bold text-chalk">BODY LOCK · DEBUG</p>
+          <p>status: <span className="text-volt">{lockState.status}</span></p>
+          <p>lockedId: <span className="text-volt">{lockState.lockedId ?? "—"}</span></p>
+          <p>confidence: <span className="text-volt">{lockState.confidence}%</span></p>
+          <p>lostFrames: <span className="text-volt">{lockState.lostFrames}</span></p>
+          <p className="flex items-center gap-1">
+            <Users className="h-3 w-3" /> people: <span className="text-volt">{lockState.peopleCount}</span>
+          </p>
+          <p>reps: <span className="text-volt">{state.reps}</span></p>
+          <button
+            onClick={resetLock}
+            className="mt-2 rounded-lg border border-ember/40 bg-ember/10 px-2 py-1 text-[11px] text-ember"
+          >
+            Reset lock
+          </button>
+        </div>
+      )}
+
+      {/* Lock prompt (idle before lock, or lost) */}
+      {status === "ready" &&
+        (lockState.status === "idle" || lockState.status === "lost") && (
+          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/80 px-6 text-center">
+            <Target className="mb-3 h-10 w-10 text-neon" />
+            <h3 className="font-display text-2xl font-bold uppercase tracking-wide">
+              {lockState.status === "lost" ? "Lost track of you" : "Lock onto you"}
+            </h3>
+            <p className="mt-2 max-w-sm text-sm text-fog">
+              {lockState.peopleCount > 1
+                ? "Multiple people detected. Stand in the center, or tap yourself, then lock."
+                : "Stand so your whole body is visible, then lock on."}
+            </p>
+            <Button size="lg" className="mt-5" onClick={lockCenter}>
+              <Lock className="h-5 w-5" />
+              Lock me in
+            </Button>
+            <p className="mt-2 text-xs text-smoke">
+              {lockState.peopleCount} {lockState.peopleCount === 1 ? "person" : "people"} detected · or tap your body on screen
+            </p>
+          </div>
+        )}
 
       {/* Floating cue */}
       <AnimatePresence>
@@ -451,6 +552,26 @@ export function LiveSession({
           }
         >
           {voice ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
+        </button>
+        <button
+          onClick={lockCenter}
+          className="grid h-12 w-12 place-items-center rounded-full border border-white/15 bg-white/5 text-chalk backdrop-blur hover:bg-white/10"
+          aria-label="Lock user"
+          title="Lock onto the center person"
+        >
+          <Lock className="h-5 w-5" />
+        </button>
+        <button
+          onClick={() => setShowDebug((d) => !d)}
+          className={`grid h-12 w-12 place-items-center rounded-full border backdrop-blur ${
+            showDebug
+              ? "border-volt/50 bg-volt/15 text-volt"
+              : "border-white/15 bg-white/5 text-chalk hover:bg-white/10"
+          }`}
+          aria-label="Toggle debug"
+          title="Tracking debug info"
+        >
+          <Bug className="h-5 w-5" />
         </button>
         <Button
           size="lg"

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { getExerciseConfig } from "@/lib/pose/exercises";
 import { getFormChecks } from "@/lib/pose/form-rules";
 import { RepCounter, type CoachEvent, type CoachState } from "@/lib/pose/rep-counter";
+import { BodyLock, poseBox, type LockState, type Pose } from "@/lib/pose/body-lock";
 
 const SKELETON: [string, string][] = [
   ["left_shoulder", "right_shoulder"],
@@ -23,7 +24,7 @@ const SKELETON: [string, string][] = [
 
 export type TrainerStatus = "loading" | "ready" | "error";
 
-const INITIAL: CoachState = {
+const INITIAL_COACH: CoachState = {
   reps: 0,
   holdSeconds: 0,
   progress: 0,
@@ -33,6 +34,14 @@ const INITIAL: CoachState = {
   tracking: false,
   inMotion: false,
   fault: null,
+};
+
+const INITIAL_LOCK: LockState = {
+  status: "idle",
+  lockedId: null,
+  confidence: 0,
+  lostFrames: 0,
+  peopleCount: 0,
 };
 
 export function usePoseTrainer({
@@ -49,14 +58,18 @@ export function usePoseTrainer({
   const counterRef = useRef<RepCounter>(
     new RepCounter(getExerciseConfig(poseKey), getFormChecks(poseKey))
   );
+  const lockRef = useRef<BodyLock>(new BodyLock());
+  const lastPosesRef = useRef<Pose[]>([]);
   const detectorRef = useRef<any>(null);
   const rafRef = useRef<number>(0);
   const runningRef = useRef(running);
   const onEventRef = useRef(onEvent);
+  const lastLockEmit = useRef(0);
 
   const [status, setStatus] = useState<TrainerStatus>("loading");
-  const [errorMsg, setErrorMsg] = useState<string>("");
-  const [state, setState] = useState<CoachState>(INITIAL);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [state, setState] = useState<CoachState>(INITIAL_COACH);
+  const [lockState, setLockState] = useState<LockState>(INITIAL_LOCK);
 
   runningRef.current = running;
   onEventRef.current = onEvent;
@@ -84,8 +97,9 @@ export function usePoseTrainer({
         const detector = await poseDetection.createDetector(
           poseDetection.SupportedModels.MoveNet,
           {
-            modelType:
-              poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING,
+            modelType: poseDetection.movenet.modelType.MULTIPOSE_LIGHTNING,
+            enableTracking: true,
+            trackerType: poseDetection.TrackerType.BoundingBox,
           }
         );
         if (cancelled) {
@@ -111,16 +125,33 @@ export function usePoseTrainer({
       const canvas = canvasRef.current;
       const detector = detectorRef.current;
       const counter = counterRef.current;
+      const lock = lockRef.current;
       if (video && canvas && detector && video.readyState >= 2) {
         try {
-          const poses = await detector.estimatePoses(video, {
+          const vw = video.videoWidth || 640;
+          const vh = video.videoHeight || 480;
+          const poses = (await detector.estimatePoses(video, {
             flipHorizontal: false,
-          });
-          draw(canvas, video, poses[0]?.keypoints ?? []);
-          if (poses[0] && runningRef.current) {
-            const evts = counter.update(poses[0].keypoints, performance.now());
+          })) as Pose[];
+          lastPosesRef.current = poses;
+          const now = performance.now();
+
+          // Auto-lock the center person once the workout is running.
+          if (lock.status === "idle" && runningRef.current && poses.length) {
+            lock.lockCenter(poses, vw, vh, now);
+          }
+
+          const locked = lock.update(poses, now, vw, vh);
+          draw(canvas, video, poses, lock.lockedId, lock.confidence);
+
+          if (locked && runningRef.current) {
+            const evts = counter.update(locked.keypoints, now);
             for (const e of evts) onEventRef.current?.(e);
             setState(counter.state());
+          }
+          if (now - lastLockEmit.current > 150) {
+            lastLockEmit.current = now;
+            setLockState(lock.state());
           }
         } catch {
           /* skip frame */
@@ -140,20 +171,63 @@ export function usePoseTrainer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // --- manual lock controls ---
+  function lockCenter() {
+    const v = videoRef.current;
+    if (!v) return;
+    lockRef.current.lockCenter(
+      lastPosesRef.current,
+      v.videoWidth || 640,
+      v.videoHeight || 480,
+      performance.now()
+    );
+    setLockState(lockRef.current.state());
+  }
+
+  function lockAtClient(clientX: number, clientY: number) {
+    const v = videoRef.current;
+    if (!v) return;
+    const rect = v.getBoundingClientRect();
+    const vw = v.videoWidth || 640;
+    const vh = v.videoHeight || 480;
+    const scale = Math.max(rect.width / vw, rect.height / vh);
+    const offX = (vw * scale - rect.width) / 2;
+    const offY = (vh * scale - rect.height) / 2;
+    // account for the mirrored (-scale-x) video display
+    const dx = rect.width - (clientX - rect.left);
+    const dy = clientY - rect.top;
+    const vx = (dx + offX) / scale;
+    const vy = (dy + offY) / scale;
+    lockRef.current.lockAt(lastPosesRef.current, vx, vy, performance.now());
+    setLockState(lockRef.current.state());
+  }
+
+  function resetLock() {
+    lockRef.current.reset();
+    setLockState(lockRef.current.state());
+  }
+
   return {
     videoRef,
     canvasRef,
     status,
     errorMsg,
     state,
+    lockState,
+    lockCenter,
+    lockAtClient,
+    resetLock,
     getSummary: () => counterRef.current.summary(),
   };
 }
 
+// ---- drawing (canvas is NOT css-mirrored; we flip x here so labels read normally) ----
 function draw(
   canvas: HTMLCanvasElement,
   video: HTMLVideoElement,
-  keypoints: any[]
+  poses: Pose[],
+  lockedId: number | null,
+  confidence: number
 ) {
   const w = video.videoWidth || 640;
   const h = video.videoHeight || 480;
@@ -162,29 +236,48 @@ function draw(
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   ctx.clearRect(0, 0, w, h);
+  const fx = (x: number) => w - x; // mirror to match the video
 
-  const map: Record<string, any> = {};
-  for (const k of keypoints) if (k.name) map[k.name] = k;
+  for (const p of poses) {
+    const box = poseBox(p.keypoints);
+    if (!box) continue;
+    const isLocked = p.id === lockedId;
 
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = "rgba(255,122,24,0.9)";
-  for (const [a, b] of SKELETON) {
-    const ka = map[a];
-    const kb = map[b];
-    if (ka?.score > 0.3 && kb?.score > 0.3) {
-      ctx.beginPath();
-      ctx.moveTo(ka.x, ka.y);
-      ctx.lineTo(kb.x, kb.y);
-      ctx.stroke();
-    }
-  }
+    // bounding box
+    ctx.lineWidth = isLocked ? 4 : 2;
+    ctx.strokeStyle = isLocked ? "rgba(43,255,136,0.95)" : "rgba(160,160,170,0.5)";
+    const left = fx(box.xMax);
+    ctx.strokeRect(left, box.yMin, box.w, box.h);
 
-  for (const k of keypoints) {
-    if (k.score > 0.3) {
-      ctx.beginPath();
-      ctx.arc(k.x, k.y, 5, 0, Math.PI * 2);
-      ctx.fillStyle = "#2bd4ff";
-      ctx.fill();
+    if (isLocked) {
+      // label above the box
+      ctx.font = "bold 16px system-ui, sans-serif";
+      ctx.fillStyle = "rgba(43,255,136,0.95)";
+      ctx.fillText(`ACTIVE USER · ${confidence}%`, left, Math.max(16, box.yMin - 8));
+
+      // skeleton (locked user only)
+      const map: Record<string, any> = {};
+      for (const k of p.keypoints) if (k.name) map[k.name] = k;
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = "rgba(255,122,24,0.9)";
+      for (const [a, b] of SKELETON) {
+        const ka = map[a];
+        const kb = map[b];
+        if (ka?.score > 0.3 && kb?.score > 0.3) {
+          ctx.beginPath();
+          ctx.moveTo(fx(ka.x), ka.y);
+          ctx.lineTo(fx(kb.x), kb.y);
+          ctx.stroke();
+        }
+      }
+      for (const k of p.keypoints) {
+        if ((k.score ?? 0) > 0.3) {
+          ctx.beginPath();
+          ctx.arc(fx(k.x), k.y, 5, 0, Math.PI * 2);
+          ctx.fillStyle = "#2bd4ff";
+          ctx.fill();
+        }
+      }
     }
   }
 }
