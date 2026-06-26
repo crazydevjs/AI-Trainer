@@ -1,26 +1,141 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ============================================================
+   FORGE — AI Fitness Trainer · Dark Luxury Gym Design System
+   ============================================================ */
+
+@theme {
+  /* Surfaces */
+  --color-void: #050505;
+  --color-obsidian: #0a0a0c;
+  --color-graphite: #121216;
+  --color-steel: #1c1c22;
+  --color-ash: #2a2a32;
+
+  /* Text */
+  --color-chalk: #f5f5f7;
+  --color-fog: #a1a1aa;
+  --color-smoke: #6b6b76;
+
+  /* Accents */
+  --color-ember: #ff3b30;       /* primary red */
+  --color-flame: #ff7a18;       /* orange */
+  --color-volt: #2bd4ff;        /* electric blue */
+  --color-neon: #2bff88;        /* success green */
+  --color-amber: #ffc24b;       /* warning */
+
+  /* Mapped roles */
+  --color-background: var(--color-void);
+  --color-foreground: var(--color-chalk);
+  --color-primary: var(--color-ember);
+  --color-muted: var(--color-fog);
+
+  /* Fonts */
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), monospace;
+  --font-display: var(--font-display), var(--font-geist-sans), sans-serif;
+
+  /* Radius */
+  --radius: 1.25rem;
+
+  /* Animations */
+  --animate-shimmer: shimmer 2.5s linear infinite;
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-pulse-glow: pulse-glow 2.5s ease-in-out infinite;
+  --animate-gradient: gradient-shift 8s ease infinite;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-12px); }
+}
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.04); }
+}
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  border-color: color-mix(in oklab, var(--color-chalk) 8%, transparent);
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-void);
+  color: var(--color-chalk);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* cinematic ambient backdrop */
+  background-image:
+    radial-gradient(900px circle at 12% -10%, rgba(255, 59, 48, 0.10), transparent 55%),
+    radial-gradient(800px circle at 100% 0%, rgba(43, 212, 255, 0.08), transparent 50%),
+    radial-gradient(1000px circle at 50% 120%, rgba(255, 122, 24, 0.06), transparent 55%);
+}
+
+/* ---------- Glassmorphism ---------- */
+@utility glass {
+  background: color-mix(in oklab, var(--color-graphite) 70%, transparent);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid color-mix(in oklab, var(--color-chalk) 9%, transparent);
+  box-shadow:
+    0 1px 0 0 color-mix(in oklab, var(--color-chalk) 7%, transparent) inset,
+    0 24px 60px -24px rgba(0, 0, 0, 0.8);
+}
+
+@utility glass-strong {
+  background: color-mix(in oklab, var(--color-steel) 78%, transparent);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  border: 1px solid color-mix(in oklab, var(--color-chalk) 12%, transparent);
+  box-shadow:
+    0 1px 0 0 color-mix(in oklab, var(--color-chalk) 9%, transparent) inset,
+    0 30px 80px -30px rgba(0, 0, 0, 0.9);
+}
+
+/* ---------- Glow ---------- */
+@utility glow-ember {
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-ember) 40%, transparent),
+    0 0 30px -6px color-mix(in oklab, var(--color-ember) 60%, transparent);
+}
+@utility glow-volt {
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-volt) 40%, transparent),
+    0 0 30px -6px color-mix(in oklab, var(--color-volt) 55%, transparent);
+}
+@utility text-glow {
+  text-shadow: 0 0 24px color-mix(in oklab, currentColor 55%, transparent);
+}
+
+/* ---------- Gradient text ---------- */
+@utility text-gradient {
+  background: linear-gradient(100deg, var(--color-ember), var(--color-flame) 55%, var(--color-amber));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ---------- Scrollbar ---------- */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--color-obsidian); }
+::-webkit-scrollbar-thumb {
+  background: var(--color-ash);
+  border-radius: 999px;
+  border: 2px solid var(--color-obsidian);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--color-smoke); }
+
+::selection {
+  background: color-mix(in oklab, var(--color-ember) 35%, transparent);
+  color: var(--color-chalk);
 }

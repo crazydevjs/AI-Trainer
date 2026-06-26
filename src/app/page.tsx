@@ -1,65 +1,187 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import Link from "next/link";
+import { motion } from "framer-motion";
+import {
+  Activity,
+  Camera,
+  Dumbbell,
+  LineChart,
+  Sparkles,
+  Trophy,
+} from "lucide-react";
+import { Logo } from "@/components/brand";
+import { Button } from "@/components/ui/button";
+
+const features = [
+  {
+    icon: Camera,
+    title: "AI Camera Coach",
+    desc: "Your webcam becomes a personal trainer — real-time form correction and voice cues.",
+    accent: "text-ember",
+  },
+  {
+    icon: Activity,
+    title: "Auto Rep Counting",
+    desc: "Pose detection counts every rep and measures range of motion automatically.",
+    accent: "text-volt",
+  },
+  {
+    icon: LineChart,
+    title: "Progress Intelligence",
+    desc: "Track strength, weight, and PRs with cinematic charts and weekly reports.",
+    accent: "text-neon",
+  },
+  {
+    icon: Dumbbell,
+    title: "Personalized Plans",
+    desc: "Programs tuned to your goals, equipment, experience, and schedule.",
+    accent: "text-flame",
+  },
+  {
+    icon: Trophy,
+    title: "Gamified Streaks",
+    desc: "Earn XP, level up, and unlock achievements as you stay consistent.",
+    accent: "text-amber",
+  },
+  {
+    icon: Sparkles,
+    title: "Session Scoring",
+    desc: "Get a form, tempo, and range-of-motion score out of 10 after every workout.",
+    accent: "text-ember",
+  },
+];
+
+const EASE = [0.22, 1, 0.36, 1] as [number, number, number, number];
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 24 },
+  show: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.6, delay: i * 0.08, ease: EASE },
+  }),
+};
+
+export default function LandingPage() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <main className="relative flex-1 overflow-hidden">
+      {/* Nav */}
+      <header className="mx-auto flex max-w-7xl items-center justify-between px-6 py-6">
+        <Logo />
+        <nav className="flex items-center gap-2">
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/login">Log in</Link>
+          </Button>
+          <Button asChild size="sm">
+            <Link href="/signup">Get started</Link>
+          </Button>
+        </nav>
+      </header>
+
+      {/* Hero */}
+      <section className="mx-auto max-w-7xl px-6 pb-24 pt-12 text-center sm:pt-20">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+          className="mx-auto mb-6 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-4 py-1.5 text-xs font-medium uppercase tracking-widest text-fog"
+        >
+          <span className="h-1.5 w-1.5 animate-pulse-glow rounded-full bg-ember" />
+          AI-Powered Personal Training
+        </motion.div>
+
+        <motion.h1
+          initial={{ opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
+          className="font-display mx-auto max-w-4xl text-5xl font-bold uppercase leading-[0.95] tracking-tight sm:text-7xl"
+        >
+          Forge the body
+          <br />
+          <span className="text-gradient text-glow">you train for.</span>
+        </motion.h1>
+
+        <motion.p
+          initial={{ opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
+          className="mx-auto mt-6 max-w-xl text-lg text-fog"
+        >
+          An AI coach that watches your form, counts your reps, and corrects you
+          in real time — like having a personal trainer inside your camera.
+        </motion.p>
+
+        <motion.div
+          initial={{ opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.3, ease: [0.22, 1, 0.36, 1] }}
+          className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row"
+        >
+          <Button asChild size="xl" className="w-full sm:w-auto">
+            <Link href="/signup">Start training free</Link>
+          </Button>
+          <Button asChild variant="glass" size="xl" className="w-full sm:w-auto">
+            <Link href="/login">I have an account</Link>
+          </Button>
+        </motion.div>
+
+        {/* Hero stat strip */}
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.45, ease: [0.22, 1, 0.36, 1] }}
+          className="glass-strong mx-auto mt-16 grid max-w-3xl grid-cols-3 gap-4 rounded-3xl p-6"
+        >
+          {[
+            ["11+", "Tracked exercises"],
+            ["Real-time", "Form feedback"],
+            ["10/10", "Session scoring"],
+          ].map(([big, small]) => (
+            <div key={small} className="text-center">
+              <div className="font-display text-3xl font-bold text-chalk sm:text-4xl">
+                {big}
+              </div>
+              <div className="mt-1 text-xs uppercase tracking-widest text-smoke">
+                {small}
+              </div>
+            </div>
+          ))}
+        </motion.div>
+      </section>
+
+      {/* Features */}
+      <section className="mx-auto max-w-7xl px-6 pb-32">
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {features.map((f, i) => (
+            <motion.div
+              key={f.title}
+              custom={i}
+              variants={fadeUp}
+              initial="hidden"
+              whileInView="show"
+              viewport={{ once: true, margin: "-80px" }}
+              className="glass group rounded-3xl p-6 transition-transform duration-300 hover:-translate-y-1"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+              <div className="mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-white/[0.04] ring-1 ring-white/10">
+                <f.icon className={`h-6 w-6 ${f.accent}`} />
+              </div>
+              <h3 className="font-display text-lg font-semibold tracking-wide">
+                {f.title}
+              </h3>
+              <p className="mt-2 text-sm leading-relaxed text-fog">{f.desc}</p>
+            </motion.div>
+          ))}
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+      </section>
+
+      {/* Footer */}
+      <footer className="border-t border-white/5 py-10">
+        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-6 text-sm text-smoke sm:flex-row">
+          <Logo />
+          <p>© {new Date().getFullYear()} FORGE. Train smarter.</p>
         </div>
-      </main>
-    </div>
+      </footer>
+    </main>
   );
 }

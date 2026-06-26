@@ -1,0 +1,416 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Loader2, Pause, Play, Square, Volume2, VolumeX } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { usePoseTrainer } from "./use-pose-trainer";
+import type { CoachEvent } from "@/lib/pose/rep-counter";
+import { setVoiceEnabled, stopSpeaking } from "@/lib/voice";
+import { Coach } from "@/lib/coach";
+import type { TrainerExercise } from "./trainer-experience";
+
+export interface SessionResult {
+  durationSec: number;
+  totalReps: number;
+  formScore: number;
+  romScore: number;
+  tempoScore: number;
+  completionPct: number;
+  caloriesBurned: number;
+  sets: { setNumber: number; reps: number; formScore?: number; romScore?: number }[];
+}
+
+const REST_SECONDS = 30;
+
+type Cue = { text: string; id: number; tone: "praise" | "correct" | "bad" };
+
+const TONE_STYLES: Record<Cue["tone"], string> = {
+  praise: "border-neon/50 bg-neon/15 text-neon",
+  correct: "border-amber/50 bg-amber/20 text-amber",
+  bad: "border-ember/60 bg-ember/25 text-chalk",
+};
+
+export function LiveSession({
+  exercise,
+  targetSets,
+  targetReps,
+  isHold,
+  voiceOn,
+  bodyWeightKg,
+  onExit,
+  onFinish,
+}: {
+  exercise: TrainerExercise;
+  targetSets: number;
+  targetReps: number;
+  isHold: boolean;
+  voiceOn: boolean;
+  bodyWeightKg: number;
+  onExit: () => void;
+  onFinish: (r: SessionResult) => void;
+}) {
+  const [paused, setPaused] = useState(false);
+  const [resting, setResting] = useState(false);
+  const [restLeft, setRestLeft] = useState(0);
+  const [currentSet, setCurrentSet] = useState(1);
+  const [cue, setCue] = useState<Cue | null>(null);
+  const [voice, setVoice] = useState(voiceOn);
+
+  const setStartCount = useRef(0);
+  const repTimes = useRef<number[]>([]);
+  const startTs = useRef(performance.now());
+  const finishedRef = useRef(false);
+  const completedSets = useRef<SessionResult["sets"]>([]);
+  const coach = useRef(new Coach()).current;
+  const startedRef = useRef(false);
+  const hypeRef = useRef("");
+
+  useEffect(() => {
+    setVoiceEnabled(voice);
+  }, [voice]);
+
+  const handleEvent = useCallback(
+    (e: CoachEvent) => {
+      if (e.type === "rep") {
+        repTimes.current.push(performance.now());
+        const phrase = coach.goodRep(e.quality);
+        setCue({ text: phrase, id: Date.now(), tone: "praise" });
+      } else if (e.type === "badrep") {
+        const phrase = coach.badRep(e.reason);
+        setCue({ text: phrase, id: Date.now(), tone: "bad" });
+      } else {
+        coach.correct(e.message);
+        setCue({
+          text: e.message,
+          id: Date.now(),
+          tone: e.tone === "praise" ? "praise" : "correct",
+        });
+      }
+    },
+    [coach]
+  );
+
+  // running only when not paused, not resting, not finished
+  const { videoRef, canvasRef, status, errorMsg, state, getSummary } =
+    usePoseTrainer({
+      poseKey: exercise.poseKey,
+      running: !paused && !resting && !finishedRef.current,
+      onEvent: handleEvent,
+    });
+
+  // Greet on first ready + keep the coach talking during quiet stretches.
+  useEffect(() => {
+    if (status === "ready" && !startedRef.current) {
+      startedRef.current = true;
+      coach.start();
+    }
+  }, [status, coach]);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (finishedRef.current || paused || resting || status !== "ready") return;
+      const p = coach.maybeMotivate();
+      if (p) setCue({ text: p, id: Date.now(), tone: "praise" });
+    }, 4000);
+    return () => clearInterval(id);
+  }, [paused, resting, status, coach]);
+
+  const finish = useCallback(() => {
+    if (finishedRef.current) return;
+    finishedRef.current = true;
+    stopSpeaking();
+    const s = getSummary();
+    const totalCount = isHold ? s.holdSeconds : s.reps;
+    const targetTotal = targetSets * targetReps;
+    const completionPct = Math.max(0, Math.min(100, (totalCount / targetTotal) * 100));
+    const durationSec = Math.round((performance.now() - startTs.current) / 1000);
+
+    // tempo from rep intervals (reps only)
+    let tempoScore = 100;
+    if (!isHold && repTimes.current.length > 2) {
+      const ivs: number[] = [];
+      for (let i = 1; i < repTimes.current.length; i++)
+        ivs.push((repTimes.current[i] - repTimes.current[i - 1]) / 1000);
+      const avg = ivs.reduce((a, b) => a + b, 0) / ivs.length;
+      // ideal 2-4s/rep; penalize rushing hardest
+      if (avg < 1) tempoScore = 50;
+      else if (avg < 1.5) tempoScore = 70;
+      else if (avg < 2) tempoScore = 88;
+      else if (avg <= 4.5) tempoScore = 100;
+      else tempoScore = 85;
+    }
+
+    const minutes = durationSec / 60;
+    const calories = Math.round(
+      exercise.metValue * 3.5 * bodyWeightKg * minutes / 200
+    );
+
+    onFinish({
+      durationSec,
+      totalReps: isHold ? s.holdSeconds : s.reps,
+      formScore: s.formScore || 80,
+      romScore: s.romScore || (isHold ? 100 : 80),
+      tempoScore,
+      completionPct,
+      caloriesBurned: calories,
+      sets:
+        completedSets.current.length > 0
+          ? completedSets.current
+          : [{ setNumber: 1, reps: totalCount, formScore: s.formScore, romScore: s.romScore }],
+    });
+  }, [getSummary, isHold, targetSets, targetReps, exercise.metValue, bodyWeightKg, onFinish]);
+
+  // detect set completion
+  const liveCount = isHold ? state.holdSeconds : state.reps;
+  useEffect(() => {
+    if (resting || finishedRef.current || status !== "ready") return;
+    const inSet = liveCount - setStartCount.current;
+
+    // last-rep encouragement (rep exercises only)
+    if (!isHold && inSet < targetReps) {
+      const remaining = targetReps - inSet;
+      const tag = `${currentSet}-${remaining}`;
+      if (remaining === 1 && hypeRef.current !== tag) {
+        hypeRef.current = tag;
+        coach.lastOne();
+      } else if (remaining === 2 && hypeRef.current !== tag) {
+        hypeRef.current = tag;
+        coach.almost();
+      }
+    }
+
+    if (inSet >= targetReps) {
+      completedSets.current.push({
+        setNumber: currentSet,
+        reps: inSet,
+        formScore: state.avgForm ?? undefined,
+        romScore: state.avgRom ?? undefined,
+      });
+      if (currentSet >= targetSets) {
+        finish();
+      } else {
+        setStartCount.current = liveCount;
+        setCurrentSet((s) => s + 1);
+        setResting(true);
+        setRestLeft(REST_SECONDS);
+        coach.setDone();
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveCount]);
+
+  // rest countdown
+  useEffect(() => {
+    if (!resting) return;
+    if (restLeft <= 0) {
+      setResting(false);
+      coach.nextSet();
+      return;
+    }
+    const t = setTimeout(() => setRestLeft((r) => r - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resting, restLeft, coach]);
+
+  const inSetCount = Math.max(0, liveCount - setStartCount.current);
+
+  return (
+    <div className="fixed inset-0 z-50 overflow-hidden bg-black">
+      {/* Camera feed (mirrored) */}
+      <video
+        ref={videoRef}
+        playsInline
+        muted
+        className="absolute inset-0 h-full w-full -scale-x-100 object-cover"
+      />
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0 h-full w-full -scale-x-100 object-cover"
+      />
+      {/* darkening vignette for HUD legibility */}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/70" />
+
+      {/* Loading / error */}
+      {status !== "ready" && (
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 bg-black/80 px-6 text-center">
+          {status === "loading" ? (
+            <>
+              <Loader2 className="h-10 w-10 animate-spin text-ember" />
+              <p className="text-fog">Starting your AI coach…</p>
+              <p className="text-xs text-smoke">Loading pose model & camera</p>
+            </>
+          ) : (
+            <>
+              <p className="max-w-sm text-chalk">{errorMsg}</p>
+              <Button variant="outline" onClick={onExit}>
+                Exit
+              </Button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ===== HUD ===== */}
+      {/* Top bar */}
+      <div className="absolute inset-x-0 top-0 z-20 flex items-start justify-between p-5 sm:p-8">
+        <div>
+          <p className="text-xs uppercase tracking-widest text-fog">
+            Set {Math.min(currentSet, targetSets)} / {targetSets}
+          </p>
+          <h2 className="font-display text-2xl font-bold uppercase tracking-wide text-chalk text-glow">
+            {exercise.name}
+          </h2>
+        </div>
+        <div className="flex gap-2">
+          <ScoreChip label="Form" value={state.avgForm} />
+          <ScoreChip label="ROM" value={state.avgRom} />
+        </div>
+      </div>
+
+      {/* Tracking warning */}
+      {status === "ready" && !state.tracking && !resting && !paused && (
+        <div className="absolute left-1/2 top-24 z-20 -translate-x-1/2 rounded-full border border-amber/40 bg-amber/15 px-4 py-2 text-sm text-amber backdrop-blur">
+          Step back — keep your whole body in frame
+        </div>
+      )}
+
+      {/* Floating cue */}
+      <AnimatePresence>
+        {cue && (
+          <motion.div
+            key={cue.id}
+            initial={{ opacity: 0, y: -10, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            onAnimationComplete={() => {
+              setTimeout(() => setCue((c) => (c?.id === cue.id ? null : c)), 2000);
+            }}
+            className={`absolute left-1/2 top-[30%] z-20 -translate-x-1/2 rounded-2xl border px-6 py-3 text-center backdrop-blur-xl ${TONE_STYLES[cue.tone]}`}
+          >
+            {cue.tone === "bad" && (
+              <p className="mb-0.5 text-[10px] font-bold uppercase tracking-[0.2em] text-ember">
+                Rep not counted
+              </p>
+            )}
+            <span className="text-lg font-semibold">{cue.text}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Big counter */}
+      <div className="absolute inset-x-0 bottom-28 z-20 flex flex-col items-center">
+        <div className="relative grid place-items-center">
+          <svg width="200" height="200" className="-rotate-90">
+            <circle cx="100" cy="100" r="88" fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="10" />
+            <circle
+              cx="100"
+              cy="100"
+              r="88"
+              fill="none"
+              stroke="url(#hudgrad)"
+              strokeWidth="10"
+              strokeLinecap="round"
+              strokeDasharray={2 * Math.PI * 88}
+              strokeDashoffset={2 * Math.PI * 88 * (1 - state.progress)}
+              style={{ transition: "stroke-dashoffset 0.1s linear" }}
+            />
+            <defs>
+              <linearGradient id="hudgrad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="#ff3b30" />
+                <stop offset="100%" stopColor="#ff7a18" />
+              </linearGradient>
+            </defs>
+          </svg>
+          <div className="absolute flex flex-col items-center">
+            <span className="font-display text-7xl font-bold leading-none text-chalk">
+              {inSetCount}
+            </span>
+            <span className="mt-1 text-xs uppercase tracking-widest text-fog">
+              {isHold ? `/ ${targetReps}s` : `/ ${targetReps} reps`}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Rest overlay */}
+      <AnimatePresence>
+        {resting && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/80"
+          >
+            <p className="text-sm uppercase tracking-widest text-fog">Rest</p>
+            <p className="font-display text-8xl font-bold text-chalk">{restLeft}</p>
+            <p className="mt-2 text-fog">Next: Set {currentSet} of {targetSets}</p>
+            <Button variant="outline" className="mt-6" onClick={() => setRestLeft(0)}>
+              Skip rest
+            </Button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Paused overlay */}
+      <AnimatePresence>
+        {paused && !resting && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/80"
+          >
+            <p className="font-display text-5xl font-bold uppercase tracking-wide">Paused</p>
+            <Button size="lg" className="mt-6" onClick={() => setPaused(false)}>
+              <Play className="h-5 w-5" />
+              Resume
+            </Button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Bottom controls */}
+      <div className="absolute inset-x-0 bottom-0 z-20 flex items-center justify-center gap-3 p-5 sm:p-8">
+        <button
+          onClick={() => setVoice((v) => !v)}
+          className="grid h-12 w-12 place-items-center rounded-full border border-white/15 bg-white/5 text-chalk backdrop-blur hover:bg-white/10"
+          aria-label="Toggle voice"
+        >
+          {voice ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
+        </button>
+        <Button
+          size="lg"
+          variant="glass"
+          onClick={() => setPaused((p) => !p)}
+          disabled={resting}
+        >
+          {paused ? <Play className="h-5 w-5" /> : <Pause className="h-5 w-5" />}
+          {paused ? "Resume" : "Pause"}
+        </Button>
+        <Button size="lg" variant="danger" onClick={finish}>
+          <Square className="h-5 w-5" />
+          End workout
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function ScoreChip({ label, value }: { label: string; value: number | null }) {
+  const color =
+    value == null
+      ? "text-fog"
+      : value >= 80
+        ? "text-neon"
+        : value >= 60
+          ? "text-amber"
+          : "text-ember";
+  return (
+    <div className="rounded-2xl border border-white/15 bg-black/40 px-4 py-2 text-center backdrop-blur">
+      <p className="text-[10px] uppercase tracking-widest text-fog">{label}</p>
+      <p className={`font-display text-xl font-bold ${color}`}>
+        {value == null ? "—" : value}
+      </p>
+    </div>
+  );
+}

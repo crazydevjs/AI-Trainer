@@ -1,0 +1,447 @@
+// FORGE — AI Fitness Trainer · Database Schema
+// Provider: PostgreSQL · ORM: Prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// AUTH & USER
+// ============================================================
+
+enum Role {
+  USER
+  ADMIN
+}
+
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  name            String?
+  passwordHash    String? // null for Google-only accounts
+  image           String?
+  googleId        String?   @unique
+  role            Role      @default(USER)
+  emailVerified   DateTime?
+  onboarded       Boolean   @default(false)
+
+  // gamification snapshot
+  xp              Int       @default(0)
+  level           Int       @default(1)
+  streak          Int       @default(0)
+  longestStreak   Int       @default(0)
+  lastActiveDate  DateTime?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  profile         Profile?
+  plan            WorkoutPlan?
+  sessions        WorkoutSession[]
+  progress        ProgressEntry[]
+  records         PersonalRecord[]
+  achievements    UserAchievement[]
+  notifications   Notification[]
+  tokens          Token[]
+  customWorkouts  CustomWorkout[]
+
+  @@index([email])
+}
+
+// Email-verification & password-reset tokens
+enum TokenType {
+  EMAIL_VERIFY
+  PASSWORD_RESET
+}
+
+model Token {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      TokenType
+  token     String    @unique
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+
+  @@index([userId, type])
+}
+
+// ============================================================
+// ONBOARDING PROFILE
+// ============================================================
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum FitnessGoal {
+  LOSE_WEIGHT
+  BUILD_MUSCLE
+  GAIN_STRENGTH
+  IMPROVE_ENDURANCE
+  STAY_FIT
+  RECOMP
+}
+
+enum ExperienceLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum ActivityLevel {
+  SEDENTARY
+  LIGHT
+  MODERATE
+  ACTIVE
+  VERY_ACTIVE
+}
+
+enum WorkoutLocation {
+  HOME
+  GYM
+  OUTDOOR
+  HYBRID
+}
+
+model Profile {
+  id            String          @id @default(cuid())
+  userId        String          @unique
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  age           Int
+  gender        Gender
+  heightCm      Float
+  weightKg      Float
+  targetWeightKg Float?
+
+  goal          FitnessGoal
+  experience    ExperienceLevel
+  activityLevel ActivityLevel
+  location      WorkoutLocation
+
+  injuries      String[]        @default([])
+  equipment     String[]        @default([])
+  dailyMinutes  Int             @default(45) // available time per day
+  workoutDays   Int             @default(4)  // days per week
+
+  // Computed metrics
+  bmi           Float?
+  bmr           Float?
+  dailyCalories Float?
+  fitnessScore  Int? // 0-100
+
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+}
+
+// ============================================================
+// EXERCISE LIBRARY
+// ============================================================
+
+enum Difficulty {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum ExerciseCategory {
+  CHEST
+  BACK
+  SHOULDERS
+  BICEPS
+  TRICEPS
+  QUADS
+  HAMSTRINGS
+  GLUTES
+  CALVES
+  CORE
+  CARDIO
+  FUNCTIONAL
+  OLYMPIC
+  FULL_BODY
+}
+
+// Training discipline tags an exercise belongs to.
+enum Discipline {
+  GYM
+  HOME
+  POWERLIFTING
+  BODYBUILDING
+  CALISTHENICS
+  CARDIO
+  FUNCTIONAL
+  CROSSFIT
+}
+
+enum EquipmentType {
+  BARBELL
+  DUMBBELL
+  MACHINE
+  CABLE
+  BODYWEIGHT
+  KETTLEBELL
+  CARDIO_MACHINE
+  ACCESSORY
+}
+
+// Equipment & machine catalog (reference + filtering).
+model Equipment {
+  id        String        @id @default(cuid())
+  slug      String        @unique
+  name      String
+  type      EquipmentType
+  imageUrl  String?
+  createdAt DateTime      @default(now())
+}
+
+model Exercise {
+  id             String           @id @default(cuid())
+  slug           String           @unique
+  name           String
+  category       ExerciseCategory
+  difficulty     Difficulty
+  disciplines    Discipline[]     @default([])
+
+  // Muscles
+  muscles          String[] @default([]) // primary
+  secondaryMuscles String[] @default([])
+
+  // Gear (denormalized for fast display; see Equipment catalog for the registry)
+  equipment      String[]         @default([])
+
+  // Coaching content
+  instructions   String[]         @default([])
+  commonMistakes String[]         @default([])
+  formTips       String[]         @default([])
+  beginnerMod    String?
+  advancedVariations String[]     @default([])
+
+  // Media
+  videoUrl       String?
+  imageUrl       String?
+
+  // Energy
+  metValue       Float            @default(5) // for calorie estimation
+
+  // AI camera support
+  poseKey        String? // which pose rep-counter logic applies (e.g. "squat")
+  aiPosture      Boolean          @default(false)
+  aiRepCount     Boolean          @default(false)
+  aiRom          Boolean          @default(false)
+  aiFeedback     Boolean          @default(false)
+
+  createdAt      DateTime         @default(now())
+
+  planExercises          PlanExercise[]
+  sessions               WorkoutSession[]
+  records                PersonalRecord[]
+  customWorkoutExercises CustomWorkoutExercise[]
+}
+
+// ============================================================
+// PERSONALIZED PLAN
+// ============================================================
+
+model WorkoutPlan {
+  id        String     @id @default(cuid())
+  userId    String     @unique
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  summary   String?
+  createdAt DateTime   @default(now())
+  days      PlanDay[]
+}
+
+model PlanDay {
+  id        String         @id @default(cuid())
+  planId    String
+  plan      WorkoutPlan    @relation(fields: [planId], references: [id], onDelete: Cascade)
+  dayOfWeek Int // 0-6
+  focus     String // e.g. "Push", "Pull", "Legs", "Rest"
+  exercises PlanExercise[]
+}
+
+model PlanExercise {
+  id         String   @id @default(cuid())
+  dayId      String
+  day        PlanDay  @relation(fields: [dayId], references: [id], onDelete: Cascade)
+  exerciseId String
+  exercise   Exercise @relation(fields: [exerciseId], references: [id])
+  order      Int      @default(0)
+  sets       Int      @default(3)
+  reps       Int      @default(10)
+  restSec    Int      @default(60)
+}
+
+// ============================================================
+// WORKOUT CREATOR (user-built workouts & programs)
+// ============================================================
+
+enum ProgramType {
+  CUSTOM
+  PUSH_PULL_LEGS
+  UPPER_LOWER
+  FULL_BODY
+  POWERLIFTING
+  BRO_SPLIT
+}
+
+model CustomWorkout {
+  id          String                  @id @default(cuid())
+  userId      String
+  user        User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  programType ProgramType             @default(CUSTOM)
+  isFavorite  Boolean                 @default(false)
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+  exercises   CustomWorkoutExercise[]
+
+  @@index([userId, isFavorite])
+}
+
+model CustomWorkoutExercise {
+  id         String        @id @default(cuid())
+  workoutId  String
+  workout    CustomWorkout @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+  exerciseId String
+  exercise   Exercise      @relation(fields: [exerciseId], references: [id])
+  order      Int           @default(0)
+  sets       Int           @default(3)
+  reps       Int           @default(10)
+  restSec    Int           @default(60)
+}
+
+// ============================================================
+// WORKOUT SESSIONS & ANALYSIS
+// ============================================================
+
+model WorkoutSession {
+  id            String       @id @default(cuid())
+  userId        String
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exerciseId    String
+  exercise      Exercise     @relation(fields: [exerciseId], references: [id])
+
+  targetSets    Int
+  targetReps    Int
+
+  startedAt     DateTime     @default(now())
+  endedAt       DateTime?
+  durationSec   Int          @default(0)
+
+  totalReps     Int          @default(0)
+  caloriesBurned Float       @default(0)
+
+  // AI session analysis (0-100 unless noted)
+  overallScore  Float? // out of 10
+  formScore     Float?
+  romScore      Float? // range of motion
+  tempoScore    Float?
+  consistencyScore Float?
+  completionPct Float?
+  feedback      String[]     @default([])
+
+  sets          SessionSet[]
+
+  @@index([userId, startedAt])
+}
+
+model SessionSet {
+  id         String         @id @default(cuid())
+  sessionId  String
+  session    WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  setNumber  Int
+  reps       Int            @default(0)
+  weightKg   Float?
+  formScore  Float?
+  romScore   Float?
+}
+
+// ============================================================
+// PROGRESS TRACKING
+// ============================================================
+
+model ProgressEntry {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date       DateTime @default(now())
+  weightKg   Float?
+  bodyFatPct Float?
+  chestCm    Float?
+  waistCm    Float?
+  hipsCm     Float?
+  armsCm     Float?
+  thighsCm   Float?
+
+  @@index([userId, date])
+}
+
+model PersonalRecord {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exerciseId String
+  exercise   Exercise @relation(fields: [exerciseId], references: [id])
+  weightKg   Float
+  reps       Int
+  achievedAt DateTime @default(now())
+
+  @@unique([userId, exerciseId])
+}
+
+// ============================================================
+// GAMIFICATION & NOTIFICATIONS
+// ============================================================
+
+model Achievement {
+  id          String            @id @default(cuid())
+  slug        String            @unique
+  title       String
+  description String
+  icon        String // lucide icon name
+  xpReward    Int               @default(50)
+  users       UserAchievement[]
+}
+
+model UserAchievement {
+  id            String      @id @default(cuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievementId String
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+  unlockedAt    DateTime    @default(now())
+
+  @@unique([userId, achievementId])
+}
+
+enum NotificationType {
+  WORKOUT_REMINDER
+  WATER_REMINDER
+  MOTIVATION
+  RECOVERY
+  ACHIEVEMENT
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  body      String
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  @@index([userId, read])
+}
