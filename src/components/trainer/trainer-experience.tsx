@@ -9,6 +9,7 @@ import { getExerciseConfig } from "@/lib/pose/exercises";
 import { unlockVoice } from "@/lib/voice";
 import { LiveSession, type SessionResult } from "./live-session";
 import { SessionReport } from "./session-report";
+import { CameraGuide } from "./camera-guide";
 
 export interface TrainerExercise {
   id: string;
@@ -22,7 +23,7 @@ export interface TrainerExercise {
   formTips: string[];
 }
 
-type Phase = "setup" | "active" | "report";
+type Phase = "setup" | "camera" | "active" | "report";
 
 export function TrainerExperience({
   exercise,
@@ -39,6 +40,17 @@ export function TrainerExperience({
   const [rest, setRest] = useState(60);
   const [voiceOn, setVoiceOn] = useState(true);
   const [result, setResult] = useState<SessionResult | null>(null);
+
+  if (phase === "camera") {
+    return (
+      <CameraGuide
+        exercise={exercise}
+        voiceOn={voiceOn}
+        onReady={() => setPhase("active")}
+        onBack={() => setPhase("setup")}
+      />
+    );
+  }
 
   if (phase === "active") {
     return (
@@ -176,14 +188,13 @@ export function TrainerExperience({
             // Unlock speech synthesis inside the click gesture so the coach
             // can speak in production (autoplay policy on new origins).
             if (voiceOn) unlockVoice();
-            setPhase("active");
+            setPhase("camera");
           }}
         >
-          Start workout
+          Continue to camera setup
         </Button>
         <p className="mt-3 text-center text-xs text-smoke">
-          Your browser will ask for camera access. Stand 2–3m back so your whole
-          body is visible.
+          Next: we&apos;ll help you place your camera for accurate form tracking.
         </p>
       </div>
     </main>
