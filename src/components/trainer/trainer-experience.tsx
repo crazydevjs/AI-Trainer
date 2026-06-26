@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { getExerciseConfig } from "@/lib/pose/exercises";
 import { unlockVoice } from "@/lib/voice";
 import { LiveSession, type SessionResult } from "./live-session";
@@ -187,27 +188,17 @@ export function TrainerExperience({
           </div>
         </div>
 
-        <label className="mt-4 flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+        <div className="mt-4 flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
           <span className="text-sm text-chalk">Voice coaching</span>
-          <button
-            type="button"
-            onClick={() => {
-              const next = !voiceOn;
+          <Switch
+            checked={voiceOn}
+            aria-label="Voice coaching"
+            onCheckedChange={(next) => {
               setVoiceOn(next);
               if (next) unlockVoice(); // user gesture → satisfy autoplay policy
             }}
-            className={`relative h-6 w-11 rounded-full transition-colors ${
-              voiceOn ? "bg-ember" : "bg-white/15"
-            }`}
-            aria-pressed={voiceOn}
-          >
-            <span
-              className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                voiceOn ? "translate-x-5" : "translate-x-0.5"
-              }`}
-            />
-          </button>
-        </label>
+          />
+        </div>
 
         <Button
           size="xl"
