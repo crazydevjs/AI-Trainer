@@ -75,13 +75,15 @@ export interface SessionSummary {
 }
 
 // --- tuning ---
-const ENTER = 0.35;
-const EXIT = 0.15;
-const DEPTH_FRAMES = 2;
-const REVERSAL = 0.18;
+// Real-time rep detection via bottom-turnaround (extremum) tracking:
+// a rep is counted the instant the user reverses out of the bottom after
+// reaching valid depth — no need to return to lockout or pause.
+const ENTER = 0.25; // progress to begin a rep (descending past this)
+const TURN = 0.1; // progress reversal that confirms a direction change
+const MIN_REP_PEAK = 0.5; // ignore fidget movements shallower than this
 const MIN_CONF = 0.3;
-const SMOOTH = 0.5;
-const SUSTAIN = 7; // frames a status must persist to be "active" (~0.25s)
+const SMOOTH = 0.35; // lighter smoothing → more responsive
+const SUSTAIN = 6; // frames a form status must persist to be "active"
 const HIGH_CONF = 0.5; // min keypoint confidence to let an error reject a rep
 const CHECK_FROM = 0.35;
 
@@ -106,11 +108,10 @@ export class RepCounter {
   invalidReps = 0;
   holdSeconds = 0;
 
-  private inAttempt = false;
-  private maxProgress = 0;
-  private framesAtDepth = 0;
-  private reachedDepth = false;
-  private warnedDepth = false;
+  // bottom-turnaround state machine
+  private phase: "up" | "down" = "up";
+  private peak = 0; // deepest progress in the current rep cycle
+  private valley = 0; // shallowest progress while ascending
   private smoothAngle = NaN;
   private progress = 0;
   private tracking = false;
@@ -124,7 +125,6 @@ export class RepCounter {
   // per-check run-length state (multi-frame)
   private runStatus: Record<string, "ok" | "warn" | "error"> = {};
   private runLen: Record<string, number> = {};
-  private activeId: string | null = null; // worst currently-active fault
   private repErrors = new Set<string>(); // sustained high-confidence errors
   private repWarns = new Set<string>();
   private attemptFaults: string[] = [];
@@ -184,7 +184,6 @@ export class RepCounter {
   private resetRep() {
     this.runStatus = {};
     this.runLen = {};
-    this.activeId = null;
     this.repErrors.clear();
     this.repWarns.clear();
     this.attemptFaults = [];
@@ -240,26 +239,26 @@ export class RepCounter {
     const requiredActive = cfg.activeAngle + dir * ease;
     const reqProgress = (requiredActive - cfg.startAngle) / (cfg.activeAngle - cfg.startAngle);
 
-    if (!this.inAttempt) {
+    // ===== UP phase: at/returning to the top, waiting for the next descent =====
+    if (this.phase === "up") {
       this.currentFault = null;
       this.currentJoints = [];
-      if (progress > ENTER) {
-        this.inAttempt = true;
-        this.maxProgress = progress;
-        this.framesAtDepth = 0;
-        this.reachedDepth = false;
-        this.warnedDepth = false;
+      this.valley = Math.min(this.valley, this.progress);
+      // begin a rep the moment the user is clearly descending from the top
+      if (this.progress > ENTER && this.progress > this.valley + TURN) {
+        this.phase = "down";
+        this.peak = this.progress;
         this.resetRep();
+        this.sampleStability(map);
       }
       return events;
     }
 
-    // --- in an attempt ---
-    this.maxProgress = Math.max(this.maxProgress, progress);
+    // ===== DOWN phase: descending → bottom → starting to rise =====
+    this.peak = Math.max(this.peak, this.progress);
     this.sampleStability(map);
 
-    if (progress > CHECK_FROM) {
-      // rep confidence from the main joints
+    if (this.progress > CHECK_FROM) {
       const frameConf = Math.min(...pts.map((p) => p.score ?? 0));
       this.confSamples.push(frameConf);
 
@@ -283,55 +282,35 @@ export class RepCounter {
       }
 
       this.evalForm(map, side, now, events);
-    } else {
+    }
+
+    // Bottom turnaround: the user has reversed out of the bottom → rep is DONE.
+    // Counted instantly mid-ascent — no pause or full lockout required.
+    if (this.progress < this.peak - TURN) {
+      this.phase = "up";
+      this.valley = this.progress;
       this.currentFault = null;
       this.currentJoints = [];
-    }
 
-    // depth (mode-adjusted) with multi-frame confirm
-    if (progress >= reqProgress) {
-      this.framesAtDepth += 1;
-      if (this.framesAtDepth >= DEPTH_FRAMES) this.reachedDepth = true;
-    } else {
-      this.framesAtDepth = 0;
-    }
+      // ignore fidgets / micro-movements that aren't real reps
+      if (this.peak < MIN_REP_PEAK) return events;
 
-    if (
-      !this.reachedDepth &&
-      !this.warnedDepth &&
-      progress < this.maxProgress - REVERSAL &&
-      this.maxProgress < reqProgress
-    ) {
-      this.warnedDepth = true;
-      if (this.throttleCue(now, 1200)) {
-        events.push({ type: "cue", message: cfg.incompleteCue, tone: "correct" });
-      }
-    }
-
-    // attempt ends at the top
-    if (progress < EXIT) {
-      this.inAttempt = false;
-      this.progress = 0;
-      this.currentFault = null;
-      this.currentJoints = [];
-      const tooFast = this.lastRepTs > 0 && now - this.lastRepTs < 700;
-
+      const tooFast = this.lastRepTs > 0 && now - this.lastRepTs < 450;
       const repConfidence = avg(this.confSamples);
       const errors = this.repErrors.size;
       const warns = this.repWarns.size;
       const form = Math.max(0, 100 - errors * 30 - warns * 12);
       const stability = this.computeStability();
       const idealProgress = (cfg.idealAngle - cfg.startAngle) / (cfg.activeAngle - cfg.startAngle);
-      const rom = Math.round(clamp(this.maxProgress / idealProgress) * 100);
+      const rom = Math.round(clamp(this.peak / idealProgress) * 100);
       const confPct = Math.round(repConfidence * 100);
 
       // REJECT: insufficient depth (both modes)
-      if (!this.reachedDepth) {
+      if (this.peak < reqProgress) {
         this.invalidReps += 1;
         this.faultCounts[cfg.incompleteCue] = (this.faultCounts[cfg.incompleteCue] ?? 0) + 1;
         if (!this.attemptFaults.includes(cfg.incompleteCue)) this.attemptFaults.push(cfg.incompleteCue);
         this.attempts.push({ valid: false, repNumber: 0, form, rom, stability, faults: this.attemptFaults });
-        this.resetRep();
         events.push({ type: "badrep", reason: cfg.incompleteCue });
         return events;
       }
@@ -340,12 +319,11 @@ export class RepCounter {
         const reason = this.firstErrorCue();
         this.invalidReps += 1;
         this.attempts.push({ valid: false, repNumber: 0, form, rom, stability, faults: this.attemptFaults });
-        this.resetRep();
         events.push({ type: "badrep", reason });
         return events;
       }
 
-      // VALID REP (minor/borderline issues counted, with coaching already given)
+      // VALID REP
       const quality: "perfect" | "good" =
         rom >= 90 && form >= 85 && stability >= 80 ? "perfect" : "good";
       this.reps += 1;
@@ -355,7 +333,6 @@ export class RepCounter {
       this.confScores.push(confPct);
       this.attempts.push({ valid: true, repNumber: this.reps, form, rom, stability, faults: this.attemptFaults });
       this.lastRepTs = now;
-      this.resetRep();
       events.push({ type: "rep", reps: this.reps, rom, form, stability, confidence: confPct, quality });
 
       if (tooFast && this.throttleCue(now, 1200)) {
@@ -471,7 +448,7 @@ export class RepCounter {
   state(): CoachState {
     const a = (arr: number[]) => (arr.length ? Math.round(avg(arr)) : null);
     const danger = this.currentFault?.severity === "error";
-    const color: FormColor = !this.inAttempt
+    const color: FormColor = this.phase !== "down"
       ? "idle"
       : this.currentFault
         ? this.currentFault.severity === "error"
@@ -488,7 +465,7 @@ export class RepCounter {
       confidence: Math.round(this.runConfidence * 100),
       formOk: this.currentFault === null,
       tracking: this.tracking,
-      inMotion: this.inAttempt,
+      inMotion: this.phase === "down",
       fault: this.currentFault,
       faultJoints: this.currentJoints,
       danger,
