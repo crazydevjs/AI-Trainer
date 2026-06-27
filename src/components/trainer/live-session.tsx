@@ -12,6 +12,8 @@ import {
   SwitchCamera,
   Target,
   Users,
+  Video,
+  VideoOff,
   Volume2,
   VolumeX,
 } from "lucide-react";
@@ -32,6 +34,7 @@ import { Coach } from "@/lib/coach";
 import { analyzeSet, type SetReport } from "@/lib/pose/set-analysis";
 import { isMirrored, type Facing } from "@/lib/camera";
 import { RestScreen } from "./rest-screen";
+import type { WorkoutRecorder, RecorderHud } from "./use-workout-recorder";
 import type { TrainerExercise } from "./trainer-experience";
 
 export interface SessionResult {
@@ -77,6 +80,8 @@ export function LiveSession({
   mode,
   facing,
   onFlipCamera,
+  recorder,
+  recordEnabled,
   isHold,
   voiceOn,
   bodyWeightKg,
@@ -90,6 +95,8 @@ export function LiveSession({
   mode: "beginner" | "advanced";
   facing: Facing;
   onFlipCamera: () => void;
+  recorder: WorkoutRecorder;
+  recordEnabled: boolean;
   isHold: boolean;
   voiceOn: boolean;
   bodyWeightKg: number;
@@ -130,6 +137,8 @@ export function LiveSession({
   const attemptsAtSetStart = useRef(0);
   const repTimesAtSetStart = useRef(0);
   const announced15 = useRef(false);
+  const hudRef = useRef<RecorderHud>({ exercise: exercise.name, rep: "0", set: "Set 1" });
+  const recStarted = useRef(false);
 
   useEffect(() => {
     setVoiceEnabled(voice);
@@ -215,10 +224,39 @@ export function LiveSession({
     return () => clearInterval(id);
   }, [paused, resting, status, coach]);
 
+  // Auto-start screen recording once the camera/AI is live.
+  useEffect(() => {
+    if (
+      recordEnabled &&
+      recorder.supported &&
+      status === "ready" &&
+      !recStarted.current &&
+      !finishedRef.current
+    ) {
+      const okStart = recorder.start({
+        video: videoRef.current,
+        overlay: canvasRef.current,
+        mirrored: () => isMirrored(facing),
+        hud: () => hudRef.current,
+      });
+      if (okStart) recStarted.current = true;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recordEnabled, status]);
+
+  // Pause/resume recording with the workout pause (rest is still recorded).
+  useEffect(() => {
+    if (!recorder.recording) return;
+    if (paused) recorder.pause();
+    else recorder.resume();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paused]);
+
   const finish = useCallback(() => {
     if (finishedRef.current) return;
     finishedRef.current = true;
     stopSpeaking();
+    recorder.stop();
     const s = getSummary();
     const totalCount = isHold ? s.holdSeconds : s.reps;
     const targetTotal = targetSets * targetReps;
@@ -355,6 +393,27 @@ export function LiveSession({
 
   const inSetCount = Math.max(0, liveCount - setStartCount.current);
 
+  // keep the recorder's burned-in overlay text current
+  hudRef.current = {
+    exercise: exercise.name,
+    rep: isHold ? `${inSetCount}s` : `${inSetCount} / ${targetReps}`,
+    set: `Set ${Math.min(currentSet, targetSets)}/${targetSets}`,
+    cue: cue?.tone === "praise" ? undefined : cue?.text,
+    resting,
+    restText: `REST ${restLeft}s`,
+  };
+
+  function toggleRecord() {
+    if (recorder.recording) recorder.stop();
+    else
+      recorder.start({
+        video: videoRef.current,
+        overlay: canvasRef.current,
+        mirrored: () => isMirrored(facing),
+        hud: () => hudRef.current,
+      });
+  }
+
   return (
     <div className="fixed inset-0 z-50 overflow-hidden bg-black">
       {/* Camera feed (mirrored) */}
@@ -434,6 +493,14 @@ export function LiveSession({
           <ScoreChip label="ROM" value={state.avgRom} />
         </div>
       </div>
+
+      {/* REC indicator */}
+      {recorder.recording && (
+        <div className="absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-ember/50 bg-black/60 px-3 py-1 text-xs font-bold text-ember backdrop-blur">
+          <span className={`h-2.5 w-2.5 rounded-full bg-ember ${recorder.paused ? "" : "animate-pulse"}`} />
+          {recorder.paused ? "PAUSED" : "REC"}
+        </div>
+      )}
 
       {/* Tracking warning */}
       {status === "ready" && !state.tracking && !resting && !paused && (
@@ -693,6 +760,20 @@ export function LiveSession({
         >
           <SwitchCamera className="h-5 w-5" />
         </button>
+        {recorder.supported && (
+          <button
+            onClick={toggleRecord}
+            className={`grid h-12 w-12 place-items-center rounded-full border backdrop-blur ${
+              recorder.recording
+                ? "border-ember/60 bg-ember/20 text-ember"
+                : "border-white/15 bg-white/5 text-chalk hover:bg-white/10"
+            }`}
+            aria-label="Record"
+            title={recorder.recording ? "Stop recording" : "Record workout"}
+          >
+            {recorder.recording ? <VideoOff className="h-5 w-5" /> : <Video className="h-5 w-5" />}
+          </button>
+        )}
         <button
           onClick={() => setShowDebug((d) => !d)}
           className={`grid h-12 w-12 place-items-center rounded-full border backdrop-blur ${

@@ -12,6 +12,7 @@ import { loadFacing, saveFacing, otherFacing, type Facing } from "@/lib/camera";
 import { LiveSession, type SessionResult } from "./live-session";
 import { SessionReport } from "./session-report";
 import { CameraGuide } from "./camera-guide";
+import { useWorkoutRecorder } from "./use-workout-recorder";
 
 export interface TrainerExercise {
   id: string;
@@ -43,6 +44,8 @@ export function TrainerExperience({
   const [mode, setMode] = useState<"beginner" | "advanced">("beginner");
   const [voiceOn, setVoiceOn] = useState(true);
   const [facing, setFacing] = useState<Facing>("user");
+  const [recordOn, setRecordOn] = useState(false);
+  const recorder = useWorkoutRecorder();
 
   // restore the last-used camera
   useEffect(() => setFacing(loadFacing()), []);
@@ -77,6 +80,8 @@ export function TrainerExperience({
         mode={mode}
         facing={facing}
         onFlipCamera={flipCamera}
+        recorder={recorder}
+        recordEnabled={recordOn}
         isHold={isHold}
         voiceOn={voiceOn}
         bodyWeightKg={bodyWeightKg}
@@ -94,7 +99,9 @@ export function TrainerExperience({
       <SessionReport
         exercise={exercise}
         result={result}
+        recording={recorder.result}
         onRepeat={() => {
+          recorder.clear();
           setResult(null);
           setPhase("setup");
         }}
@@ -212,6 +219,23 @@ export function TrainerExperience({
               setVoiceOn(next);
               if (next) unlockVoice(); // user gesture → satisfy autoplay policy
             }}
+          />
+        </div>
+
+        <div className="mt-3 flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+          <div>
+            <span className="text-sm text-chalk">Record workout</span>
+            <p className="text-[11px] text-smoke">
+              {recorder.supported
+                ? "Save a shareable video of your session"
+                : "Not supported on this browser"}
+            </p>
+          </div>
+          <Switch
+            checked={recordOn && recorder.supported}
+            disabled={!recorder.supported}
+            aria-label="Record workout"
+            onCheckedChange={setRecordOn}
           />
         </div>
 

@@ -6,12 +6,15 @@ import { motion } from "framer-motion";
 import {
   AlertTriangle,
   CheckCircle2,
+  Download,
   Flame,
   RotateCcw,
+  Share2,
   Sparkles,
   Timer,
   TrendingUp,
   Trophy,
+  Video,
   XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -19,14 +22,17 @@ import { ProgressRing } from "@/components/ui/progress-ring";
 import { speak } from "@/lib/voice";
 import type { TrainerExercise } from "./trainer-experience";
 import type { SessionResult } from "./live-session";
+import type { RecordResult } from "./use-workout-recorder";
 
 export function SessionReport({
   exercise,
   result,
+  recording,
   onRepeat,
 }: {
   exercise: TrainerExercise;
   result: SessionResult;
+  recording?: RecordResult | null;
   onRepeat: () => void;
 }) {
   const router = useRouter();
@@ -84,6 +90,47 @@ export function SessionReport({
     speak(lines[Math.floor(Math.random() * lines.length)], true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Auto-download the recorded workout (closest thing to gallery-save on web).
+  const downloaded = useRef(false);
+  const fileName = `forge-${exercise.slug}-${Date.now()}.${recording?.ext ?? "webm"}`;
+  useEffect(() => {
+    if (!recording || downloaded.current) return;
+    downloaded.current = true;
+    try {
+      const a = document.createElement("a");
+      a.href = recording.url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch {
+      /* user can use the buttons */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recording]);
+
+  async function shareVideo() {
+    if (!recording) return;
+    const file = new File([recording.blob], fileName, { type: recording.blob.type });
+    const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
+    if (nav.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({
+          files: [file],
+          title: "My FORGE workout",
+          text: `${result.totalReps} reps of ${exercise.name} with my AI coach 💪 #FORGE`,
+        });
+        return;
+      } catch {
+        /* fall through to download */
+      }
+    }
+    const a = document.createElement("a");
+    a.href = recording.url;
+    a.download = fileName;
+    a.click();
+  }
 
   const localOverall =
     Math.round(
@@ -166,6 +213,37 @@ export function SessionReport({
                 </li>
               ))}
             </ul>
+          </div>
+        )}
+
+        {/* Workout video */}
+        {recording && (
+          <div className="mt-6 rounded-2xl border border-volt/20 bg-volt/[0.05] p-5">
+            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-widest text-volt">
+              <Video className="h-4 w-4" />
+              Workout video saved
+            </h2>
+            <video
+              src={recording.url}
+              controls
+              playsInline
+              className="w-full rounded-xl bg-black"
+            />
+            <div className="mt-3 flex gap-3">
+              <Button className="flex-1" onClick={shareVideo}>
+                <Share2 className="h-4 w-4" />
+                Share
+              </Button>
+              <a href={recording.url} download={fileName} className="flex-1">
+                <Button variant="outline" className="w-full">
+                  <Download className="h-4 w-4" />
+                  Download
+                </Button>
+              </a>
+            </div>
+            <p className="mt-2 text-center text-[11px] text-smoke">
+              Saved to your device. Tap Share to post to Instagram, WhatsApp, or YouTube.
+            </p>
           </div>
         )}
 
