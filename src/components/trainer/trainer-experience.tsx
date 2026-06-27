@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { getExerciseConfig } from "@/lib/pose/exercises";
 import { unlockVoice } from "@/lib/voice";
+import { loadFacing, saveFacing, otherFacing, type Facing } from "@/lib/camera";
 import { LiveSession, type SessionResult } from "./live-session";
 import { SessionReport } from "./session-report";
 import { CameraGuide } from "./camera-guide";
@@ -41,6 +42,16 @@ export function TrainerExperience({
   const [rest, setRest] = useState(60);
   const [mode, setMode] = useState<"beginner" | "advanced">("beginner");
   const [voiceOn, setVoiceOn] = useState(true);
+  const [facing, setFacing] = useState<Facing>("user");
+
+  // restore the last-used camera
+  useEffect(() => setFacing(loadFacing()), []);
+  const flipCamera = () =>
+    setFacing((f) => {
+      const next = otherFacing(f);
+      saveFacing(next);
+      return next;
+    });
   const [result, setResult] = useState<SessionResult | null>(null);
 
   if (phase === "camera") {
@@ -48,6 +59,8 @@ export function TrainerExperience({
       <CameraGuide
         exercise={exercise}
         voiceOn={voiceOn}
+        facing={facing}
+        onFlipCamera={flipCamera}
         onReady={() => setPhase("active")}
         onBack={() => setPhase("setup")}
       />
@@ -62,6 +75,8 @@ export function TrainerExperience({
         targetReps={reps}
         restSeconds={rest}
         mode={mode}
+        facing={facing}
+        onFlipCamera={flipCamera}
         isHold={isHold}
         voiceOn={voiceOn}
         bodyWeightKg={bodyWeightKg}

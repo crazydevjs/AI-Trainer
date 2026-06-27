@@ -7,6 +7,7 @@ import { getFormChecks, type Mode } from "@/lib/pose/form-rules";
 import { getCameraSetup } from "@/lib/pose/camera-setup";
 import { RepCounter, type CoachEvent, type CoachState } from "@/lib/pose/rep-counter";
 import { BodyLock, poseBox, type LockState, type Pose } from "@/lib/pose/body-lock";
+import { isMirrored, type Facing } from "@/lib/camera";
 
 const SKELETON: [string, string][] = [
   ["left_shoulder", "right_shoulder"],
@@ -55,11 +56,13 @@ export function usePoseTrainer({
   poseKey,
   running,
   mode = "beginner",
+  facing = "user",
   onEvent,
 }: {
   poseKey?: string | null;
   running: boolean;
   mode?: Mode;
+  facing?: Facing;
   onEvent?: (e: CoachEvent) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -73,10 +76,13 @@ export function usePoseTrainer({
   const lockRef = useRef<BodyLock>(new BodyLock());
   const lastPosesRef = useRef<Pose[]>([]);
   const detectorRef = useRef<any>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number>(0);
   const runningRef = useRef(running);
   const onEventRef = useRef(onEvent);
   const lastLockEmit = useRef(0);
+  const facingRef = useRef(facing);
+  facingRef.current = facing;
 
   const [status, setStatus] = useState<TrainerStatus>("loading");
   const [errorMsg, setErrorMsg] = useState("");
@@ -86,23 +92,12 @@ export function usePoseTrainer({
   runningRef.current = running;
   onEventRef.current = onEvent;
 
+  // Load model + run loop once.
   useEffect(() => {
     let cancelled = false;
 
     async function init() {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user", width: 640, height: 480 },
-          audio: false,
-        });
-        if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-        const video = videoRef.current!;
-        video.srcObject = stream;
-        await video.play();
-
         const tf = await import("@tensorflow/tfjs");
         await tf.ready();
         const poseDetection = await import("@tensorflow-models/pose-detection");
@@ -114,20 +109,12 @@ export function usePoseTrainer({
             trackerType: poseDetection.TrackerType.BoundingBox,
           }
         );
-        if (cancelled) {
-          detector.dispose();
-          return;
-        }
+        if (cancelled) return detector.dispose();
         detectorRef.current = detector;
-        setStatus("ready");
         loop();
       } catch (e: any) {
         console.error("Trainer init failed:", e);
-        setErrorMsg(
-          e?.name === "NotAllowedError"
-            ? "Camera access was denied. Enable it in your browser to use the AI coach."
-            : "Could not start the camera or AI model. Check your connection and camera."
-        );
+        setErrorMsg("Could not load the AI model. Check your connection.");
         setStatus("error");
       }
     }
@@ -142,17 +129,14 @@ export function usePoseTrainer({
         try {
           const vw = video.videoWidth || 640;
           const vh = video.videoHeight || 480;
-          const poses = (await detector.estimatePoses(video, {
-            flipHorizontal: false,
-          })) as Pose[];
+          const poses = (await detector.estimatePoses(video, { flipHorizontal: false })) as Pose[];
           lastPosesRef.current = poses;
           const now = performance.now();
+          const mirrored = isMirrored(facingRef.current);
 
-          // Auto-lock the center person once the workout is running.
           if (lock.status === "idle" && runningRef.current && poses.length) {
             lock.lockCenter(poses, vw, vh, now);
           }
-
           const locked = lock.update(poses, now, vw, vh);
 
           let formView: FormView | undefined;
@@ -163,7 +147,7 @@ export function usePoseTrainer({
             setState(cs);
             formView = { color: cs.color, faultJoints: new Set(cs.faultJoints) };
           }
-          draw(canvas, video, poses, lock.lockedId, lock.confidence, formView);
+          draw(canvas, video, poses, lock.lockedId, lock.confidence, mirrored, formView);
           if (now - lastLockEmit.current > 150) {
             lastLockEmit.current = now;
             setLockState(lock.state());
@@ -180,13 +164,47 @@ export function usePoseTrainer({
       cancelled = true;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       detectorRef.current?.dispose?.();
-      const s = videoRef.current?.srcObject as MediaStream | null;
-      s?.getTracks().forEach((t) => t.stop());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // --- manual lock controls ---
+  // (Re)acquire camera when the selected camera changes; re-lock afterwards.
+  useEffect(() => {
+    let cancelled = false;
+    async function open() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: facing, width: 640, height: 480 },
+          audio: false,
+        });
+        if (cancelled) return stream.getTracks().forEach((t) => t.stop());
+        streamRef.current?.getTracks().forEach((t) => t.stop());
+        streamRef.current = stream;
+        const video = videoRef.current!;
+        video.srcObject = stream;
+        await video.play();
+        lockRef.current.reset(); // re-detect & re-lock on the new camera
+        setStatus("ready");
+      } catch (e: any) {
+        setErrorMsg(
+          e?.name === "NotAllowedError"
+            ? "Camera access was denied. Enable it in your browser to use the AI coach."
+            : "Could not start the selected camera."
+        );
+        setStatus("error");
+      }
+    }
+    open();
+    return () => {
+      cancelled = true;
+    };
+  }, [facing]);
+
+  useEffect(
+    () => () => streamRef.current?.getTracks().forEach((t) => t.stop()),
+    []
+  );
+
   function lockCenter() {
     const v = videoRef.current;
     if (!v) return;
@@ -208,11 +226,10 @@ export function usePoseTrainer({
     const scale = Math.max(rect.width / vw, rect.height / vh);
     const offX = (vw * scale - rect.width) / 2;
     const offY = (vh * scale - rect.height) / 2;
-    // account for the mirrored (-scale-x) video display
-    const dx = rect.width - (clientX - rect.left);
-    const dy = clientY - rect.top;
+    let dx = clientX - rect.left;
+    if (isMirrored(facingRef.current)) dx = rect.width - dx;
     const vx = (dx + offX) / scale;
-    const vy = (dy + offY) / scale;
+    const vy = (clientY - rect.top + offY) / scale;
     lockRef.current.lockAt(lastPosesRef.current, vx, vy, performance.now());
     setLockState(lockRef.current.state());
   }
@@ -249,13 +266,13 @@ const COLORS = {
   idle: "rgba(255,122,24,0.9)",
 };
 
-// ---- drawing (canvas is NOT css-mirrored; we flip x here so labels read normally) ----
 function draw(
   canvas: HTMLCanvasElement,
   video: HTMLVideoElement,
   poses: Pose[],
   lockedId: number | null,
   confidence: number,
+  mirrored: boolean,
   formView?: FormView
 ) {
   const w = video.videoWidth || 640;
@@ -265,37 +282,32 @@ function draw(
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   ctx.clearRect(0, 0, w, h);
-  const fx = (x: number) => w - x; // mirror to match the video
+  const fx = (x: number) => (mirrored ? w - x : x);
 
   for (const p of poses) {
     const box = poseBox(p.keypoints);
     if (!box) continue;
     const isLocked = p.id === lockedId;
 
-    // bounding box
     ctx.lineWidth = isLocked ? 4 : 2;
     ctx.strokeStyle = isLocked ? "rgba(43,255,136,0.95)" : "rgba(160,160,170,0.5)";
-    const left = fx(box.xMax);
+    const left = fx(mirrored ? box.xMax : box.xMin);
     ctx.strokeRect(left, box.yMin, box.w, box.h);
 
     if (isLocked) {
-      // label above the box
       ctx.font = "bold 16px system-ui, sans-serif";
       ctx.fillStyle = "rgba(43,255,136,0.95)";
       ctx.fillText(`ACTIVE USER · ${confidence}%`, left, Math.max(16, box.yMin - 8));
 
-      // skeleton (locked user only) — colored by form quality
       const map: Record<string, any> = {};
       for (const k of p.keypoints) if (k.name) map[k.name] = k;
       const color = COLORS[formView?.color ?? "idle"];
       const badJoints = formView?.faultJoints ?? new Set<string>();
       ctx.lineWidth = 4;
-      ctx.strokeStyle = color;
       for (const [a, b] of SKELETON) {
         const ka = map[a];
         const kb = map[b];
         if (ka?.score > 0.3 && kb?.score > 0.3) {
-          // a limb touching a faulted joint turns red
           ctx.strokeStyle = badJoints.has(a) || badJoints.has(b) ? COLORS.red : color;
           ctx.beginPath();
           ctx.moveTo(fx(ka.x), ka.y);

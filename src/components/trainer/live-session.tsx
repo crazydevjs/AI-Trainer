@@ -9,6 +9,7 @@ import {
   Pause,
   Play,
   Square,
+  SwitchCamera,
   Target,
   Users,
   Volume2,
@@ -29,6 +30,7 @@ import {
 } from "@/lib/voice";
 import { Coach } from "@/lib/coach";
 import { analyzeSet, type SetReport } from "@/lib/pose/set-analysis";
+import { isMirrored, type Facing } from "@/lib/camera";
 import { RestScreen } from "./rest-screen";
 import type { TrainerExercise } from "./trainer-experience";
 
@@ -73,6 +75,8 @@ export function LiveSession({
   targetReps,
   restSeconds,
   mode,
+  facing,
+  onFlipCamera,
   isHold,
   voiceOn,
   bodyWeightKg,
@@ -84,6 +88,8 @@ export function LiveSession({
   targetReps: number;
   restSeconds: number;
   mode: "beginner" | "advanced";
+  facing: Facing;
+  onFlipCamera: () => void;
   isHold: boolean;
   voiceOn: boolean;
   bodyWeightKg: number;
@@ -188,6 +194,7 @@ export function LiveSession({
     poseKey: exercise.poseKey,
     running: !paused && !resting && !finishedRef.current,
     mode,
+    facing,
     onEvent: handleEvent,
   });
 
@@ -355,7 +362,7 @@ export function LiveSession({
         ref={videoRef}
         playsInline
         muted
-        className="absolute inset-0 h-full w-full -scale-x-100 object-cover"
+        className={`absolute inset-0 h-full w-full object-cover ${isMirrored(facing) ? "-scale-x-100" : ""}`}
       />
       <canvas
         ref={canvasRef}
@@ -677,6 +684,14 @@ export function LiveSession({
           title="Lock onto the center person"
         >
           <Lock className="h-5 w-5" />
+        </button>
+        <button
+          onClick={onFlipCamera}
+          className="grid h-12 w-12 place-items-center rounded-full border border-white/15 bg-white/5 text-chalk backdrop-blur hover:bg-white/10"
+          aria-label="Flip camera"
+          title="Switch front / rear camera"
+        >
+          <SwitchCamera className="h-5 w-5" />
         </button>
         <button
           onClick={() => setShowDebug((d) => !d)}

@@ -2,28 +2,33 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, ArrowRight, CheckCircle2, Circle, Loader2, Ruler, Video } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, Circle, Loader2, Ruler, SwitchCamera, Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getCameraSetup, VIEW_LABEL } from "@/lib/pose/camera-setup";
 import { setVoiceEnabled, speak } from "@/lib/voice";
+import { isMirrored, facingLabel, type Facing } from "@/lib/camera";
 import { useCameraCheck } from "./use-camera-check";
 import type { TrainerExercise } from "./trainer-experience";
 
 export function CameraGuide({
   exercise,
   voiceOn,
+  facing,
+  onFlipCamera,
   onReady,
   onBack,
 }: {
   exercise: TrainerExercise;
   voiceOn: boolean;
+  facing: Facing;
+  onFlipCamera: () => void;
   onReady: () => void;
   onBack: () => void;
 }) {
   const STABILITY_MS = 2500;
 
   const setup = getCameraSetup(exercise.poseKey);
-  const { videoRef, canvasRef, status, errorMsg, check } = useCameraCheck(setup);
+  const { videoRef, canvasRef, status, errorMsg, check } = useCameraCheck(setup, facing);
   const [allowOverride, setAllowOverride] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
 
@@ -149,6 +154,16 @@ export function CameraGuide({
               </li>
             ))}
           </ul>
+
+          {setup.fullBody && facing === "user" && (
+            <button
+              onClick={onFlipCamera}
+              className="mt-4 flex w-full items-center gap-2 rounded-2xl border border-volt/30 bg-volt/10 px-4 py-3 text-left text-sm text-volt"
+            >
+              <SwitchCamera className="h-4 w-4 shrink-0" />
+              Tip: for this exercise, the rear camera on a tripod gives wider view &amp; better accuracy. Tap to switch.
+            </button>
+          )}
         </div>
 
         {/* Live validation */}
@@ -158,9 +173,24 @@ export function CameraGuide({
               ref={videoRef}
               playsInline
               muted
-              className="absolute inset-0 h-full w-full -scale-x-100 object-cover"
+              className={`absolute inset-0 h-full w-full object-cover ${isMirrored(facing) ? "-scale-x-100" : ""}`}
             />
             <canvas ref={canvasRef} className="absolute inset-0 h-full w-full object-cover" />
+
+            {/* Camera flip + active-camera label */}
+            <div className="absolute right-3 top-3 z-10 flex items-center gap-2">
+              <span className="rounded-full border border-white/15 bg-black/50 px-3 py-1 text-[11px] font-medium text-chalk backdrop-blur">
+                {facingLabel(facing)} active
+              </span>
+              <button
+                onClick={onFlipCamera}
+                className="grid h-10 w-10 place-items-center rounded-full border border-white/15 bg-black/50 text-chalk backdrop-blur transition-colors hover:bg-white/10"
+                aria-label="Flip camera"
+                title="Switch front / rear camera"
+              >
+                <SwitchCamera className="h-5 w-5" />
+              </button>
+            </div>
 
             {/* Auto-start countdown overlay */}
             {countdown != null && countdown > 0 && (
