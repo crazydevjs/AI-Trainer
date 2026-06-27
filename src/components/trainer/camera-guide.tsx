@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, ArrowRight, CheckCircle2, Loader2, Ruler, Video } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, Circle, Loader2, Ruler, Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getCameraSetup, VIEW_LABEL } from "@/lib/pose/camera-setup";
 import { setVoiceEnabled, speak } from "@/lib/voice";
@@ -20,39 +20,95 @@ export function CameraGuide({
   onReady: () => void;
   onBack: () => void;
 }) {
+  const STABILITY_MS = 2500;
+
   const setup = getCameraSetup(exercise.poseKey);
   const { videoRef, canvasRef, status, errorMsg, check } = useCameraCheck(setup);
   const [allowOverride, setAllowOverride] = useState(false);
-  const spokeOk = useRef(false);
+  const [countdown, setCountdown] = useState<number | null>(null);
+
+  const okSince = useRef<number | null>(null);
+  const lastOk = useRef(0);
+  const counting = useRef(false);
+  const tick = useRef<ReturnType<typeof setInterval> | null>(null);
+  const spokeDetected = useRef(false);
+  const spokeStill = useRef(0);
   const lastIssueTs = useRef(0);
 
   useEffect(() => {
     setVoiceEnabled(voiceOn);
   }, [voiceOn]);
 
-  // Voice guidance: read the top issue, or confirm once ready.
+  useEffect(() => () => void (tick.current && clearInterval(tick.current)), []);
+
+  const cancelCountdown = () => {
+    if (tick.current) clearInterval(tick.current);
+    tick.current = null;
+    counting.current = false;
+    setCountdown(null);
+  };
+
+  // Auto-start: when the setup is valid and held stable, run a countdown.
   useEffect(() => {
-    if (status !== "ready" || !voiceOn) return;
+    if (status !== "ready") return;
+    const now = Date.now();
+
     if (check.ok) {
-      if (!spokeOk.current) {
-        spokeOk.current = true;
-        speak("Camera position is correct. You can start.", true);
+      lastOk.current = now;
+      if (okSince.current == null) {
+        okSince.current = now;
+        if (voiceOn && !spokeDetected.current) {
+          spokeDetected.current = true;
+          speak("Body detected. Hold still.", true);
+        }
       }
+      // begin countdown once stable for STABILITY_MS
+      if (!counting.current && countdown == null && now - okSince.current >= STABILITY_MS) {
+        counting.current = true;
+        setCountdown(3);
+        if (voiceOn) speak("Get ready!", true);
+        tick.current = setInterval(() => setCountdown((c) => (c == null ? null : c - 1)), 1000);
+      }
+    } else {
+      // ignore brief flickers; only reset if lost for >700ms
+      if (okSince.current != null && now - lastOk.current > 700) {
+        okSince.current = null;
+        spokeDetected.current = false;
+        if (counting.current || countdown != null) {
+          cancelCountdown();
+          if (voiceOn && now - spokeStill.current > 3000) {
+            spokeStill.current = now;
+            speak("Hold on — get back into position.", true);
+          }
+        }
+      }
+      // read the top setup issue aloud periodically while not ready
+      if (voiceOn && check.issues[0] && now - lastIssueTs.current > 4000) {
+        lastIssueTs.current = now;
+        speak(check.issues[0], true);
+      }
+    }
+  }, [check, status, voiceOn, countdown]);
+
+  // Countdown ticking → voice each number, then start.
+  useEffect(() => {
+    if (countdown == null) return;
+    if (countdown <= 0) {
+      cancelCountdown();
+      onReady();
       return;
     }
-    spokeOk.current = false;
-    const now = Date.now();
-    if (check.issues[0] && now - lastIssueTs.current > 4000) {
-      lastIssueTs.current = now;
-      speak(check.issues[0], true);
-    }
-  }, [check, status, voiceOn]);
+    if (voiceOn && countdown <= 2) speak(String(countdown), true);
+  }, [countdown, voiceOn, onReady]);
 
   // Safety net: allow manual start if validation stays flaky.
   useEffect(() => {
     const t = setTimeout(() => setAllowOverride(true), 12000);
     return () => clearTimeout(t);
   }, []);
+
+  const cameraReady = check.angleScore >= 70 && check.lightingScore >= 45;
+  const bodyDetected = check.visibilityScore >= 85 && check.confidence >= 35;
 
   return (
     <main className="relative flex min-h-screen flex-col px-4 py-6">
@@ -105,6 +161,28 @@ export function CameraGuide({
               className="absolute inset-0 h-full w-full -scale-x-100 object-cover"
             />
             <canvas ref={canvasRef} className="absolute inset-0 h-full w-full object-cover" />
+
+            {/* Auto-start countdown overlay */}
+            {countdown != null && countdown > 0 && (
+              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/60">
+                <p className="text-xs uppercase tracking-[0.3em] text-neon">Starting in</p>
+                <motion.span
+                  key={countdown}
+                  initial={{ scale: 0.5, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  className="font-display text-8xl font-bold text-chalk"
+                >
+                  {countdown}
+                </motion.span>
+              </div>
+            )}
+            {/* Hold-still indicator while stabilizing */}
+            {countdown == null && check.ok && status === "ready" && (
+              <div className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full border border-neon/40 bg-neon/15 px-4 py-1.5 text-xs font-medium text-neon backdrop-blur">
+                Hold still — auto-starting…
+              </div>
+            )}
+
             {status !== "ready" && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/70 text-center">
                 {status === "loading" ? (
@@ -127,12 +205,19 @@ export function CameraGuide({
             <Score label="Body conf." value={check.confidence} />
           </div>
 
+          {/* Readiness checklist */}
+          <div className="mt-4 grid grid-cols-3 gap-2">
+            <ReadyItem ok={cameraReady} label="Camera ready" />
+            <ReadyItem ok={bodyDetected} label="Body detected" />
+            <ReadyItem ok={check.ok} label="In position" />
+          </div>
+
           {/* Status / issues */}
-          <div className="mt-4 min-h-[52px]">
+          <div className="mt-3 min-h-[48px]">
             {check.ok ? (
               <div className="flex items-center gap-2 rounded-2xl border border-neon/40 bg-neon/10 px-4 py-3 text-sm font-semibold text-neon">
                 <CheckCircle2 className="h-5 w-5" />
-                Camera position is correct. You&apos;re good to go!
+                {countdown != null ? `Starting in ${countdown}…` : "Setup looks great — hold still to start."}
               </div>
             ) : (
               <motion.div
@@ -148,16 +233,41 @@ export function CameraGuide({
 
           <Button
             size="xl"
-            className="mt-4 w-full"
+            className="mt-3 w-full"
             disabled={!check.ok && !allowOverride}
-            onClick={onReady}
+            onClick={() => {
+              cancelCountdown();
+              onReady();
+            }}
           >
-            {check.ok ? "Start workout" : allowOverride ? "Start anyway" : "Fix camera to continue"}
+            {countdown != null
+              ? "Start now"
+              : check.ok
+                ? "Start workout"
+                : allowOverride
+                  ? "Start anyway"
+                  : "Auto-starts when you're ready"}
             <ArrowRight className="h-5 w-5" />
           </Button>
+          <p className="mt-2 text-center text-xs text-smoke">
+            No need to come back to the phone — it starts on its own. Or tap to start manually.
+          </p>
         </div>
       </div>
     </main>
+  );
+}
+
+function ReadyItem({ ok, label }: { ok: boolean; label: string }) {
+  return (
+    <div
+      className={`flex flex-col items-center gap-1 rounded-2xl border p-2 text-center text-[11px] ${
+        ok ? "border-neon/40 bg-neon/10 text-neon" : "border-white/10 bg-white/[0.03] text-smoke"
+      }`}
+    >
+      {ok ? <CheckCircle2 className="h-4 w-4" /> : <Circle className="h-4 w-4" />}
+      {label}
+    </div>
   );
 }
 
