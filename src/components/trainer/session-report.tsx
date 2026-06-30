@@ -23,6 +23,7 @@ import { speak } from "@/lib/voice";
 import { fmtWeight, totalVolume, epley1RM, type Unit } from "@/lib/weight";
 import { isDevUnlocked, AI_BUILD, type SessionTags } from "@/lib/dev";
 import { detectTier } from "@/lib/pose/device-tier";
+import { saveSession } from "@/lib/dev-history";
 import type { TrainerExercise, LiftHistory } from "./trainer-experience";
 import type { SessionResult } from "./live-session";
 import type { RecordResult } from "./use-workout-recorder";
@@ -90,6 +91,46 @@ export function SessionReport({
         setSaving(false);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist a developer session record (dev mode only).
+  const histSaved = useRef(false);
+  useEffect(() => {
+    if (histSaved.current || !isDevUnlocked()) return;
+    histSaved.current = true;
+    const stats = computeStats(result);
+    const topW = Math.max(0, ...result.sets.map((s) => s.weightKg ?? 0));
+    saveSession({
+      id: sidRef.current,
+      ts: Date.now(),
+      exercise: exercise.name,
+      slug: exercise.slug,
+      weight: topW > 0 ? fmtWeight(topW, unit) : debugMeta?.weight,
+      cameraAngle: debugMeta?.cameraAngle,
+      device: debugMeta?.device,
+      tier: detectTier(),
+      engine: stats.poseEngineFinal,
+      avgFps: stats.avgFps,
+      avgInferenceMs: stats.avgInferenceMs,
+      confidence: stats.avgConfidence,
+      actualReps: result.totalReps,
+      falseReps: 0,
+      missedReps: stats.repsRejected,
+      trackingLoss: stats.trackingLossEvents,
+      fallbackEvents: stats.fallbackEvents,
+      aiBuild: AI_BUILD,
+      notes: [
+        debugMeta?.notes,
+        debugMeta?.environment,
+        debugMeta?.lighting,
+        debugMeta?.prAttempt ? "PR" : "",
+        debugMeta?.failureSet ? "failure" : "",
+      ]
+        .filter(Boolean)
+        .join("; "),
+      favorite: !!debugMeta?.prAttempt,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

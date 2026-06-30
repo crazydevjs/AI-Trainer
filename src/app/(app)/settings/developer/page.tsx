@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { RotateCcw, Save, FlaskConical } from "lucide-react";
+import Link from "next/link";
+import { RotateCcw, Save, FlaskConical, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   SMOOTHING_DEFAULTS,
@@ -71,6 +72,13 @@ export default function DeveloperSettingsPage() {
         <span className="font-semibold text-chalk">{tier || "…"}</span>. Changes
         apply the next time you start a workout.
       </p>
+
+      <Link href="/settings/developer/history">
+        <Button variant="outline">
+          <History className="h-4 w-4" />
+          Session history dashboard
+        </Button>
+      </Link>
 
       <div className="glass space-y-4 rounded-3xl p-6">
         <p className="text-xs uppercase tracking-widest text-smoke">Pose engine (A/B)</p>
