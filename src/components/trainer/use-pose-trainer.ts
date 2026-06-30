@@ -8,7 +8,9 @@ import { getCameraSetup } from "@/lib/pose/camera-setup";
 import { RepCounter, type CoachEvent, type CoachState } from "@/lib/pose/rep-counter";
 import { BodyLock, poseBox, type LockState, type Pose } from "@/lib/pose/body-lock";
 import { KeypointSmoother } from "@/lib/pose/one-euro";
-import { use3DFor, type PoseModel } from "@/lib/pose/model-select";
+import { chooseModel, type PoseModel } from "@/lib/pose/model-select";
+import { detectTier } from "@/lib/pose/device-tier";
+import { loadSmoothing } from "@/lib/pose/smoothing-config";
 import { isMirrored, type Facing } from "@/lib/camera";
 
 const SKELETON: [string, string][] = [
@@ -76,10 +78,21 @@ export function usePoseTrainer({
     })
   );
   const lockRef = useRef<BodyLock>(new BodyLock());
-  const smootherRef = useRef(new KeypointSmoother());
+  const smootherRef = useRef<KeypointSmoother | null>(null);
+  if (!smootherRef.current) {
+    const p = loadSmoothing();
+    smootherRef.current = new KeypointSmoother(p.minCutoff, p.beta, p.dCutoff);
+  }
   const prevLockId = useRef<number | null>(null);
   const lastPosesRef = useRef<Pose[]>([]);
   const detectorRef = useRef<any>(null);
+  const pdRef = useRef<any>(null);
+  const tierRef = useRef(detectTier());
+  const modelRef = useRef<PoseModel>("2D");
+  const fpsEma = useRef(30);
+  const slowSince = useRef(0);
+  const downgraded = useRef(false);
+  const lastFrameTs = useRef(0);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number>(0);
   const runningRef = useRef(running);
@@ -106,26 +119,42 @@ export function usePoseTrainer({
         const tf = await import("@tensorflow/tfjs");
         await tf.ready();
         const poseDetection = await import("@tensorflow-models/pose-detection");
-        const want3D = use3DFor(poseKey);
-        const detector = want3D
-          ? await poseDetection.createDetector(poseDetection.SupportedModels.BlazePose, {
-              runtime: "tfjs",
-              modelType: "lite",
-              enableSmoothing: false, // we apply our own One-Euro smoothing
-            })
-          : await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, {
-              modelType: poseDetection.movenet.modelType.MULTIPOSE_LIGHTNING,
-              enableTracking: true,
-              trackerType: poseDetection.TrackerType.BoundingBox,
-            });
+        pdRef.current = poseDetection;
+        const chosen = chooseModel(poseKey, tierRef.current);
+        const detector =
+          chosen === "3D"
+            ? await poseDetection.createDetector(poseDetection.SupportedModels.BlazePose, {
+                runtime: "tfjs",
+                modelType: "lite",
+                enableSmoothing: false, // we apply our own One-Euro smoothing
+              })
+            : await makeMoveNet(poseDetection);
         if (cancelled) return detector.dispose();
         detectorRef.current = detector;
-        setModel(want3D ? "3D" : "2D");
+        modelRef.current = chosen;
+        setModel(chosen);
         loop();
       } catch (e: any) {
         console.error("Trainer init failed:", e);
         setErrorMsg("Could not load the AI model. Check your connection.");
         setStatus("error");
+      }
+    }
+
+    async function downgradeTo2D() {
+      if (downgraded.current || !pdRef.current) return;
+      downgraded.current = true;
+      try {
+        const nd = await makeMoveNet(pdRef.current);
+        const old = detectorRef.current;
+        detectorRef.current = nd;
+        old?.dispose?.();
+        lockRef.current.reset();
+        smootherRef.current?.reset();
+        modelRef.current = "2D";
+        setModel("2D");
+      } catch {
+        /* keep current detector if swap fails */
       }
     }
 
@@ -144,6 +173,22 @@ export function usePoseTrainer({
           const now = performance.now();
           const mirrored = isMirrored(facingRef.current);
 
+          // rolling FPS + dynamic 3D→2D fallback when a device can't keep up
+          if (lastFrameTs.current) {
+            const dt = now - lastFrameTs.current;
+            if (dt > 0) fpsEma.current = fpsEma.current * 0.9 + (1000 / dt) * 0.1;
+          }
+          lastFrameTs.current = now;
+          if (!downgraded.current && modelRef.current === "3D") {
+            const floor = tierRef.current === "mid" ? 24 : 18;
+            if (fpsEma.current < floor) {
+              if (!slowSince.current) slowSince.current = now;
+              else if (now - slowSince.current > 2500) downgradeTo2D();
+            } else {
+              slowSince.current = 0;
+            }
+          }
+
           if (lock.status === "idle" && runningRef.current && poses.length) {
             lock.lockCenter(poses, vw, vh, now);
           }
@@ -151,7 +196,7 @@ export function usePoseTrainer({
 
           // One-Euro smoothing on the locked athlete (reset when the lock moves
           // to a different person) → stabler angles, ROM and form analysis.
-          if (locked) {
+          if (locked && smootherRef.current) {
             if (lock.lockedId !== prevLockId.current) {
               smootherRef.current.reset();
               prevLockId.current = lock.lockedId;
@@ -273,6 +318,14 @@ export function usePoseTrainer({
     getSummary: () => counterRef.current.summary(),
     getAttempts: () => counterRef.current.getAttempts(),
   };
+}
+
+function makeMoveNet(pd: any) {
+  return pd.createDetector(pd.SupportedModels.MoveNet, {
+    modelType: pd.movenet.modelType.MULTIPOSE_LIGHTNING,
+    enableTracking: true,
+    trackerType: pd.TrackerType.BoundingBox,
+  });
 }
 
 interface FormView {

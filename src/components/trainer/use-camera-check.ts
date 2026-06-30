@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { poseBox, type Pose } from "@/lib/pose/body-lock";
 import { KeypointSmoother } from "@/lib/pose/one-euro";
+import { loadSmoothing } from "@/lib/pose/smoothing-config";
 import type { CameraSetup } from "@/lib/pose/camera-setup";
 import { isMirrored, type Facing } from "@/lib/camera";
 
@@ -54,7 +55,11 @@ export function useCameraCheck(setup: CameraSetup, facing: Facing) {
   const rafRef = useRef<number>(0);
   const brightRef = useRef(120);
   const lastBright = useRef(0);
-  const smootherRef = useRef(new KeypointSmoother());
+  const smootherRef = useRef<KeypointSmoother | null>(null);
+  if (!smootherRef.current) {
+    const p = loadSmoothing();
+    smootherRef.current = new KeypointSmoother(p.minCutoff, p.beta, p.dCutoff);
+  }
   const facingRef = useRef(facing);
   facingRef.current = facing;
 
@@ -112,8 +117,8 @@ export function useCameraCheck(setup: CameraSetup, facing: Facing) {
           sampleBrightness(video, now);
           const poses = (await detector.estimatePoses(video)) as Pose[];
           const best = poses.sort((a, b) => (b.score ?? 0) - (a.score ?? 0))[0] ?? null;
-          if (best) best.keypoints = smootherRef.current.filter(best.keypoints, now / 1000);
-          else smootherRef.current.reset();
+          if (best) best.keypoints = smootherRef.current!.filter(best.keypoints, now / 1000);
+          else smootherRef.current!.reset();
           const result = evaluate(setup, best, video.videoWidth, video.videoHeight, brightRef.current);
           draw(canvas, video, best, result.ok, isMirrored(facingRef.current));
           setCheck(result);

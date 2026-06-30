@@ -16,3 +16,17 @@ export function modelFor(poseKey?: string | null): PoseModel {
 }
 
 export const use3DFor = (poseKey?: string | null) => modelFor(poseKey) === "3D";
+
+import type { Tier } from "./device-tier";
+
+/**
+ * Hybrid choice = exercise need × device capability.
+ *  - Low-end devices never start 3D (smoothness first).
+ *  - Mid/high start 3D for 3D-exercises; the runtime FPS monitor downgrades
+ *    mid-range devices if they can't sustain it.
+ */
+export function chooseModel(poseKey: string | null | undefined, tier: Tier): PoseModel {
+  if (!use3DFor(poseKey)) return "2D";
+  return tier === "low" ? "2D" : "3D";
+}
+
