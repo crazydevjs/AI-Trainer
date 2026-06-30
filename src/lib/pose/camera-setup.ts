@@ -67,7 +67,35 @@ const SETUPS: Record<string, CameraSetup> = {
   pushdown: FRONT_UPPER,
   "lateral-raise": FRONT_UPPER,
   "front-raise": FRONT_UPPER,
-  row: { ...FRONT_UPPER, view: "side" },
+  row: {
+    view: "side",
+    height: "Hip height",
+    distance: "2–3 m away",
+    fullBody: false,
+    requiredJoints: ["shoulder", "elbow", "wrist", "hip"],
+    tips: ["Side-on so I can see your bent-over torso.", "Keep your arms and hips in frame."],
+  },
+  "leg-extension": {
+    view: "side",
+    height: "Seat / knee height",
+    distance: "2 m away",
+    fullBody: false,
+    requiredJoints: ["hip", "knee", "ankle"],
+    tips: ["Side-on to the machine.", "Keep your hip, knee and ankle visible."],
+  },
+  "leg-press": {
+    view: "side",
+    height: "Seat height",
+    distance: "2–3 m away",
+    fullBody: false,
+    requiredJoints: ["hip", "knee", "ankle"],
+    tips: ["Side-on to the sled.", "Keep your hip, knee and ankle in frame."],
+  },
+  "pull-down": {
+    ...FRONT_UPPER,
+    height: "Seated chest height",
+    tips: ["Face the machine front-on.", "Keep your torso and arms visible."],
+  },
 };
 
 const DEFAULT: CameraSetup = {

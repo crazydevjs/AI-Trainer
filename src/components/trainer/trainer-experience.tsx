@@ -61,6 +61,7 @@ export function TrainerExperience({
   const [phase, setPhase] = useState<Phase>("setup");
   const [sets, setSets] = useState(3);
   const [reps, setReps] = useState(isHold ? 30 : 10);
+  const [repsMode, setRepsMode] = useState<"fixed" | "failure">("fixed");
   const [rest, setRest] = useState(60);
   const [mode, setMode] = useState<"beginner" | "advanced">("beginner");
   const [voiceOn, setVoiceOn] = useState(true);
@@ -112,6 +113,7 @@ export function TrainerExperience({
         unit={unit}
         startWeightKg={weightKg}
         history={history}
+        repsMode={repsMode}
         isHold={isHold}
         voiceOn={voiceOn}
         bodyWeightKg={bodyWeightKg}
@@ -175,15 +177,45 @@ export function TrainerExperience({
             max={10}
             onChange={setSets}
           />
-          <Stepper
-            label={isHold ? "Seconds / set" : "Reps / set"}
-            value={reps}
-            min={isHold ? 10 : 1}
-            max={isHold ? 300 : 50}
-            step={isHold ? 5 : 1}
-            onChange={setReps}
-          />
+          {repsMode === "fixed" ? (
+            <Stepper
+              label={isHold ? "Seconds / set" : "Reps / set"}
+              value={reps}
+              min={isHold ? 10 : 1}
+              max={isHold ? 300 : 50}
+              step={isHold ? 5 : 1}
+              onChange={setReps}
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-center">
+              <p className="text-xs uppercase tracking-widest text-smoke">Reps</p>
+              <p className="font-display mt-2 text-xl font-bold text-chalk">To failure</p>
+              <p className="text-[11px] text-smoke">Tap “Finish set” when done</p>
+            </div>
+          )}
         </div>
+
+        {!isHold && (
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {([
+              ["fixed", "Fixed reps"],
+              ["failure", "To failure"],
+            ] as const).map(([val, label]) => (
+              <button
+                key={val}
+                type="button"
+                onClick={() => setRepsMode(val)}
+                className={`rounded-2xl border px-3 py-2 text-sm font-semibold transition-all ${
+                  repsMode === val
+                    ? "border-ember/60 bg-ember/15 text-chalk"
+                    : "border-white/10 bg-white/[0.03] text-fog hover:text-chalk"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="mt-4">
           <p className="mb-2 text-xs uppercase tracking-widest text-smoke">

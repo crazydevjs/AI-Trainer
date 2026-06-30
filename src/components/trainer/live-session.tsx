@@ -93,6 +93,7 @@ export function LiveSession({
   unit,
   startWeightKg,
   history,
+  repsMode,
   isHold,
   voiceOn,
   bodyWeightKg,
@@ -104,6 +105,7 @@ export function LiveSession({
   targetReps: number;
   restSeconds: number;
   mode: "beginner" | "advanced";
+  repsMode: "fixed" | "failure";
   facing: Facing;
   onFlipCamera: () => void;
   recorder: WorkoutRecorder;
@@ -334,9 +336,80 @@ export function LiveSession({
 
   // detect set completion
   const liveCount = isHold ? state.holdSeconds : state.reps;
+  function completeSet(inSet: number) {
+    if (finishedRef.current || inSet < 1) return;
+    const w = weighted ? currentWeightRef.current : undefined;
+    completedSets.current.push({
+      setNumber: currentSet,
+      reps: inSet,
+      formScore: state.avgForm ?? undefined,
+      romScore: state.avgRom ?? undefined,
+      weightKg: w,
+    });
+
+    // Progressive overload / PR detection for weighted sets.
+    if (weighted && w && w > 0) {
+      const vol = w * inSet;
+      const weightPR = w > bestWeightRef.current;
+      const volPR = vol > bestVolumeRef.current;
+      bestWeightRef.current = Math.max(bestWeightRef.current, w);
+      bestVolumeRef.current = Math.max(bestVolumeRef.current, vol);
+      if (weightPR || volPR) {
+        setPrBadge(true);
+        setCue({
+          text: weightPR ? "New personal record!" : "Best volume yet!",
+          id: Date.now(),
+          tone: "praise",
+        });
+        speakSequence([
+          weightPR ? "New personal record! Strong lift." : "Best volume yet. Great work.",
+        ]);
+      }
+    }
+
+    // Build the per-set debrief from this set's attempts.
+    const slice = getAttempts().slice(attemptsAtSetStart.current);
+    const setTimes = repTimes.current.slice(repTimesAtSetStart.current);
+    const report = isHold
+      ? null
+      : analyzeSet(
+          currentSet,
+          slice,
+          tempoFromTimes(setTimes),
+          {
+            name: exercise.name,
+            muscles: exercise.muscles,
+            secondaryMuscles: exercise.secondaryMuscles,
+            formTips: exercise.formTips,
+          },
+          prevReportRef.current
+        );
+
+    if (currentSet >= targetSets) {
+      finish();
+    } else {
+      setStartCount.current = liveCount;
+      setCurrentSet((s) => s + 1);
+      if (report) {
+        prevReportRef.current = report;
+        setRestReport(report);
+      }
+      setResting(true);
+      setRestLeft(restSeconds);
+      announced15.current = false;
+      speakSequence([
+        `Set ${currentSet} complete. Rest for ${restSeconds} seconds.`,
+        ...(report?.voiceLines.slice(0, 2) ?? []),
+      ]);
+    }
+  }
+
   useEffect(() => {
     if (resting || finishedRef.current || status !== "ready") return;
     const inSet = liveCount - setStartCount.current;
+
+    // Reps-to-failure: never auto-complete — the user taps "Finish set".
+    if (repsMode === "failure") return;
 
     // last-rep encouragement (rep exercises only)
     if (!isHold && inSet < targetReps) {
@@ -351,73 +424,7 @@ export function LiveSession({
       }
     }
 
-    if (inSet >= targetReps) {
-      const w = weighted ? currentWeightRef.current : undefined;
-      completedSets.current.push({
-        setNumber: currentSet,
-        reps: inSet,
-        formScore: state.avgForm ?? undefined,
-        romScore: state.avgRom ?? undefined,
-        weightKg: w,
-      });
-
-      // Progressive overload / PR detection for weighted sets.
-      if (weighted && w && w > 0) {
-        const vol = w * inSet;
-        const weightPR = w > bestWeightRef.current;
-        const volPR = vol > bestVolumeRef.current;
-        bestWeightRef.current = Math.max(bestWeightRef.current, w);
-        bestVolumeRef.current = Math.max(bestVolumeRef.current, vol);
-        if (weightPR || volPR) {
-          setPrBadge(true);
-          setCue({
-            text: weightPR ? "New personal record!" : "Best volume yet!",
-            id: Date.now(),
-            tone: "praise",
-          });
-          speakSequence([
-            weightPR ? "New personal record! Strong lift." : "Best volume yet. Great work.",
-          ]);
-        }
-      }
-
-      // Build the per-set debrief from this set's attempts.
-      const slice = getAttempts().slice(attemptsAtSetStart.current);
-      const setTimes = repTimes.current.slice(repTimesAtSetStart.current);
-      const report = isHold
-        ? null
-        : analyzeSet(
-            currentSet,
-            slice,
-            tempoFromTimes(setTimes),
-            {
-              name: exercise.name,
-              muscles: exercise.muscles,
-              secondaryMuscles: exercise.secondaryMuscles,
-              formTips: exercise.formTips,
-            },
-            prevReportRef.current
-          );
-
-      if (currentSet >= targetSets) {
-        finish();
-      } else {
-        setStartCount.current = liveCount;
-        setCurrentSet((s) => s + 1);
-        if (report) {
-          prevReportRef.current = report;
-          setRestReport(report);
-        }
-        setResting(true);
-        setRestLeft(restSeconds);
-        announced15.current = false;
-        // Announce rest + the top coaching points back-to-back.
-        speakSequence([
-          `Set ${currentSet} complete. Rest for ${restSeconds} seconds.`,
-          ...(report?.voiceLines.slice(0, 2) ?? []),
-        ]);
-      }
-    }
+    if (inSet >= targetReps) completeSet(inSet);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveCount]);
 
@@ -722,7 +729,13 @@ export function LiveSession({
               {inSetCount}
             </span>
             <span className="mt-1 text-xs uppercase tracking-widest text-fog">
-              {isHold ? `/ ${targetReps}s` : `/ ${targetReps} reps`}
+              {repsMode === "failure"
+                ? isHold
+                  ? "seconds"
+                  : "reps · to failure"
+                : isHold
+                  ? `/ ${targetReps}s`
+                  : `/ ${targetReps} reps`}
             </span>
           </div>
         </div>
@@ -799,6 +812,15 @@ export function LiveSession({
             <span className="text-lg">⚠</span>
             Safety: {state.fault?.message}. Reps won&apos;t count until you fix it.
           </div>
+        </div>
+      )}
+
+      {/* Reps-to-failure: manual finish-set */}
+      {status === "ready" && repsMode === "failure" && !resting && !paused && (
+        <div className="absolute inset-x-0 bottom-24 z-20 flex justify-center px-4">
+          <Button size="lg" variant="primary" onClick={() => completeSet(inSetCount)}>
+            Finish set ({inSetCount} {isHold ? "s" : "reps"})
+          </Button>
         </div>
       )}
 

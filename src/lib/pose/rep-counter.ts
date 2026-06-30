@@ -229,7 +229,18 @@ export class RepCounter {
     const raw = angle(pts[0], pts[1], pts[2]);
     this.smoothAngle = isNaN(this.smoothAngle) ? raw : this.smoothAngle * (1 - SMOOTH) + raw * SMOOTH;
     const ang = this.smoothAngle;
-    const progress = (ang - cfg.startAngle) / (cfg.activeAngle - cfg.startAngle);
+    let progress = (ang - cfg.startAngle) / (cfg.activeAngle - cfg.startAngle);
+
+    // Overhead presses: a straight elbow only counts as "worked" when the wrist
+    // is actually overhead — so arms hanging at the sides (also a straight
+    // elbow) read as the start, not a rep. Fixes false setup reps + lets heavy,
+    // partial-lockout presses still register.
+    if (cfg.requireWristAboveShoulder) {
+      const wr = map[`${side}_wrist`];
+      const sh = map[`${side}_shoulder`];
+      if (!wr || !sh || (wr.score ?? 0) < 0.3 || wr.y >= sh.y) progress = 0;
+    }
+
     this.progress = clamp(progress);
     this.orientation = detectOrientation(map);
 

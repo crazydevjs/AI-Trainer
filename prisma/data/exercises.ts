@@ -491,14 +491,14 @@ const RAW: Raw[] = [
     disciplines: ["GYM", "BODYBUILDING"], muscles: ["Quads", "Glutes"], secondaryMuscles: ["Hamstrings"],
     equipment: ["Leg Press Machine"],
     instructions: ["Feet shoulder-width on platform.", "Lower until knees ~90°.", "Press up without locking out."],
-    commonMistakes: ["Lower back rounding (too deep)", "Locking knees"], beginnerMod: "Great quad builder with low skill demand.", metValue: 6,
+    commonMistakes: ["Lower back rounding (too deep)", "Locking knees"], beginnerMod: "Great quad builder with low skill demand.", metValue: 6, poseKey: "leg-press", ai: { rep: true, rom: true },
   },
   {
     slug: "leg-extension", name: "Leg Extension", category: "QUADS", difficulty: "BEGINNER",
     disciplines: ["GYM", "BODYBUILDING"], muscles: ["Quads"], secondaryMuscles: [],
     equipment: ["Leg Extension Machine"],
     instructions: ["Pad on lower shins.", "Extend knees fully.", "Squeeze, then lower."],
-    commonMistakes: ["Using momentum", "Partial range"], metValue: 4,
+    commonMistakes: ["Using momentum", "Partial range"], metValue: 4, poseKey: "leg-extension", ai: { rep: true, rom: true },
   },
   {
     slug: "bulgarian-split-squat", name: "Bulgarian Split Squat", category: "QUADS", difficulty: "INTERMEDIATE",

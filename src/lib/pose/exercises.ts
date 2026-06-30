@@ -20,6 +20,9 @@ export interface RepConfig {
   posture?: PostureRule;
   /** message when a rep finishes without enough range */
   incompleteCue: string;
+  /** overhead presses: only treat as "worked" when the wrist is above the
+   *  shoulder — prevents arms-at-sides (elbow straight) reading as a rep. */
+  requireWristAboveShoulder?: boolean;
 }
 
 export interface HoldConfig {
@@ -64,9 +67,30 @@ const pressLike: RepConfig = {
   type: "rep",
   joint: ["shoulder", "elbow", "wrist"],
   startAngle: 90,
-  activeAngle: 160,
+  activeAngle: 150, // forgiving lockout for heavy dumbbells / limited mobility
+  idealAngle: 168,
+  incompleteCue: "Press a little higher",
+  requireWristAboveShoulder: true,
+};
+
+// Seated knee extension: leg goes from bent (~90) to straight (~165).
+const legExtensionLike: RepConfig = {
+  type: "rep",
+  joint: ["hip", "knee", "ankle"],
+  startAngle: 90,
+  activeAngle: 155,
   idealAngle: 172,
-  incompleteCue: "Push all the way up",
+  incompleteCue: "Straighten your legs fully",
+};
+
+// Leg press: legs extended at the top (~165), bend to ~90, press back.
+const legPressLike: RepConfig = {
+  type: "rep",
+  joint: ["hip", "knee", "ankle"],
+  startAngle: 165,
+  activeAngle: 110,
+  idealAngle: 90,
+  incompleteCue: "Lower with control",
 };
 
 const pullupLike: RepConfig = {
@@ -159,6 +183,8 @@ const CONFIGS: Record<string, ExerciseConfig> = {
   "front-raise": raiseLike,
   crunch: crunchLike,
   "leg-raise": crunchLike,
+  "leg-extension": legExtensionLike,
+  "leg-press": legPressLike,
   dip: dipLike,
   pushdown: pushdownLike,
   plank: {
