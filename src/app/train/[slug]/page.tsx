@@ -27,14 +27,45 @@ export default async function TrainPage({
       muscles: true,
       secondaryMuscles: true,
       formTips: true,
+      equipment: true,
     },
   });
   if (!exercise) notFound();
+
+  // Lifting history for progressive overload + PR detection.
+  const sets = await prisma.sessionSet.findMany({
+    where: {
+      session: { userId: user.id, exerciseId: exercise.id },
+      weightKg: { not: null },
+    },
+    select: { weightKg: true, reps: true, session: { select: { startedAt: true } } },
+    orderBy: { session: { startedAt: "desc" } },
+    take: 200,
+  });
+
+  let bestWeightKg = 0;
+  let bestVolumeKg = 0;
+  for (const s of sets) {
+    const w = s.weightKg ?? 0;
+    bestWeightKg = Math.max(bestWeightKg, w);
+    bestVolumeKg = Math.max(bestVolumeKg, w * s.reps);
+  }
+  // most recent session's top set weight
+  const lastDate = sets[0]?.session.startedAt?.toDateString();
+  const lastWeightKg = lastDate
+    ? Math.max(
+        0,
+        ...sets
+          .filter((s) => s.session.startedAt?.toDateString() === lastDate)
+          .map((s) => s.weightKg ?? 0)
+      )
+    : 0;
 
   return (
     <TrainerExperience
       exercise={exercise}
       bodyWeightKg={user.profile?.weightKg ?? 75}
+      history={{ bestWeightKg, bestVolumeKg, lastWeightKg }}
     />
   );
 }

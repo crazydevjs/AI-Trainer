@@ -33,9 +33,10 @@ import {
 import { Coach } from "@/lib/coach";
 import { analyzeSet, type SetReport } from "@/lib/pose/set-analysis";
 import { isMirrored, type Facing } from "@/lib/camera";
+import { displayWeight, fmtWeight, type Unit } from "@/lib/weight";
 import { RestScreen } from "./rest-screen";
 import type { WorkoutRecorder, RecorderHud } from "./use-workout-recorder";
-import type { TrainerExercise } from "./trainer-experience";
+import type { TrainerExercise, LiftHistory } from "./trainer-experience";
 
 export interface SessionResult {
   durationSec: number;
@@ -49,7 +50,13 @@ export interface SessionResult {
   completionPct: number;
   caloriesBurned: number;
   topMistakes: string[];
-  sets: { setNumber: number; reps: number; formScore?: number; romScore?: number }[];
+  sets: {
+    setNumber: number;
+    reps: number;
+    formScore?: number;
+    romScore?: number;
+    weightKg?: number;
+  }[];
 }
 
 type Cue = { text: string; id: number; tone: "praise" | "correct" | "bad" };
@@ -82,6 +89,10 @@ export function LiveSession({
   onFlipCamera,
   recorder,
   recordEnabled,
+  weighted,
+  unit,
+  startWeightKg,
+  history,
   isHold,
   voiceOn,
   bodyWeightKg,
@@ -97,6 +108,10 @@ export function LiveSession({
   onFlipCamera: () => void;
   recorder: WorkoutRecorder;
   recordEnabled: boolean;
+  weighted: boolean;
+  unit: Unit;
+  startWeightKg: number;
+  history: LiftHistory;
   isHold: boolean;
   voiceOn: boolean;
   bodyWeightKg: number;
@@ -139,6 +154,13 @@ export function LiveSession({
   const announced15 = useRef(false);
   const hudRef = useRef<RecorderHud>({ exercise: exercise.name, rep: "0", set: "Set 1" });
   const recStarted = useRef(false);
+  const [currentWeightKg, setCurrentWeightKg] = useState(startWeightKg);
+  const [nextWeightKg, setNextWeightKg] = useState(startWeightKg);
+  const bestWeightRef = useRef(history.bestWeightKg);
+  const bestVolumeRef = useRef(history.bestVolumeKg);
+  const currentWeightRef = useRef(startWeightKg);
+  currentWeightRef.current = currentWeightKg;
+  const [prBadge, setPrBadge] = useState(false);
 
   useEffect(() => {
     setVoiceEnabled(voice);
@@ -298,9 +320,17 @@ export function LiveSession({
       sets:
         completedSets.current.length > 0
           ? completedSets.current
-          : [{ setNumber: 1, reps: totalCount, formScore: s.formScore, romScore: s.romScore }],
+          : [
+              {
+                setNumber: 1,
+                reps: totalCount,
+                formScore: s.formScore,
+                romScore: s.romScore,
+                weightKg: weighted ? currentWeightRef.current : undefined,
+              },
+            ],
     });
-  }, [getSummary, isHold, targetSets, targetReps, exercise.metValue, bodyWeightKg, onFinish]);
+  }, [getSummary, isHold, targetSets, targetReps, exercise.metValue, bodyWeightKg, weighted, onFinish]);
 
   // detect set completion
   const liveCount = isHold ? state.holdSeconds : state.reps;
@@ -322,12 +352,34 @@ export function LiveSession({
     }
 
     if (inSet >= targetReps) {
+      const w = weighted ? currentWeightRef.current : undefined;
       completedSets.current.push({
         setNumber: currentSet,
         reps: inSet,
         formScore: state.avgForm ?? undefined,
         romScore: state.avgRom ?? undefined,
+        weightKg: w,
       });
+
+      // Progressive overload / PR detection for weighted sets.
+      if (weighted && w && w > 0) {
+        const vol = w * inSet;
+        const weightPR = w > bestWeightRef.current;
+        const volPR = vol > bestVolumeRef.current;
+        bestWeightRef.current = Math.max(bestWeightRef.current, w);
+        bestVolumeRef.current = Math.max(bestVolumeRef.current, vol);
+        if (weightPR || volPR) {
+          setPrBadge(true);
+          setCue({
+            text: weightPR ? "New personal record!" : "Best volume yet!",
+            id: Date.now(),
+            tone: "praise",
+          });
+          speakSequence([
+            weightPR ? "New personal record! Strong lift." : "Best volume yet. Great work.",
+          ]);
+        }
+      }
 
       // Build the per-set debrief from this set's attempts.
       const slice = getAttempts().slice(attemptsAtSetStart.current);
@@ -379,7 +431,16 @@ export function LiveSession({
       // mark the next set's attempt/time window
       attemptsAtSetStart.current = getAttempts().length;
       repTimesAtSetStart.current = repTimes.current.length;
+      // apply the weight chosen for the upcoming set
+      if (weighted) setCurrentWeightKg(nextWeightKg);
       coach.nextSet();
+      if (weighted && nextWeightKg > 0) {
+        const heavy = nextWeightKg >= bestWeightRef.current;
+        speakSequence([
+          `Set ${currentSet}, ${displayWeight(nextWeightKg, unit)} ${unit}.`,
+          ...(heavy ? ["Heavy set. Brace your core."] : []),
+        ]);
+      }
       return;
     }
     if (restLeft === 15 && !announced15.current) {
@@ -397,7 +458,9 @@ export function LiveSession({
   hudRef.current = {
     exercise: exercise.name,
     rep: isHold ? `${inSetCount}s` : `${inSetCount} / ${targetReps}`,
-    set: `Set ${Math.min(currentSet, targetSets)}/${targetSets}`,
+    set:
+      `Set ${Math.min(currentSet, targetSets)}/${targetSets}` +
+      (weighted && currentWeightKg > 0 ? ` · ${fmtWeight(currentWeightKg, unit)}` : ""),
     cue: cue?.tone === "praise" ? undefined : cue?.text,
     resting,
     restText: `REST ${restLeft}s`,
@@ -465,6 +528,9 @@ export function LiveSession({
         <div>
           <p className="text-xs uppercase tracking-widest text-fog">
             Set {Math.min(currentSet, targetSets)} / {targetSets}
+            {weighted && currentWeightKg > 0 && (
+              <span className="ml-2 text-flame">· {fmtWeight(currentWeightKg, unit)}</span>
+            )}
           </p>
           <h2 className="font-display text-2xl font-bold uppercase tracking-wide text-chalk text-glow">
             {exercise.name}
@@ -499,6 +565,13 @@ export function LiveSession({
         <div className="absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-ember/50 bg-black/60 px-3 py-1 text-xs font-bold text-ember backdrop-blur">
           <span className={`h-2.5 w-2.5 rounded-full bg-ember ${recorder.paused ? "" : "animate-pulse"}`} />
           {recorder.paused ? "PAUSED" : "REC"}
+        </div>
+      )}
+
+      {/* PR badge */}
+      {prBadge && (
+        <div className="absolute right-4 top-14 z-20 flex items-center gap-1.5 rounded-full border border-amber/50 bg-amber/15 px-3 py-1 text-xs font-bold text-amber backdrop-blur">
+          🏆 NEW PR
         </div>
       )}
 
@@ -677,6 +750,11 @@ export function LiveSession({
             totalSets={targetSets}
             onSkip={() => setRestLeft(0)}
             onAddTime={() => setRestLeft((r) => r + 15)}
+            weighted={weighted}
+            unit={unit}
+            nextWeightKg={nextWeightKg}
+            lastWeightKg={currentWeightKg}
+            onWeightChange={setNextWeightKg}
           />
         )}
         {resting && !restReport && (

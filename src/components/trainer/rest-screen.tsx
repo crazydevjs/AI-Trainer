@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { AlertTriangle, ArrowRight, Lightbulb, Plus, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { SetReport } from "@/lib/pose/set-analysis";
+import { displayWeight, fmtWeight, incrementsKg, toKg, type Unit } from "@/lib/weight";
 
 const fatigueColor = (lvl: string) =>
   lvl === "Low" ? "text-neon" : lvl === "Moderate" ? "text-amber" : "text-ember";
@@ -15,6 +16,11 @@ export function RestScreen({
   totalSets,
   onSkip,
   onAddTime,
+  weighted,
+  unit,
+  nextWeightKg,
+  lastWeightKg,
+  onWeightChange,
 }: {
   report: SetReport;
   timeLeft: number;
@@ -22,6 +28,11 @@ export function RestScreen({
   totalSets: number;
   onSkip: () => void;
   onAddTime: () => void;
+  weighted?: boolean;
+  unit?: Unit;
+  nextWeightKg?: number;
+  lastWeightKg?: number;
+  onWeightChange?: (kg: number) => void;
 }) {
   const pct = total > 0 ? (timeLeft / total) * 100 : 0;
   const r = 70;
@@ -73,6 +84,63 @@ export function RestScreen({
             </Button>
           </div>
         </div>
+
+        {/* Next-set weight selector */}
+        {weighted && unit && onWeightChange && (
+          <div className="glass mt-6 rounded-3xl p-5">
+            <div className="flex items-center justify-between">
+              <p className="text-xs uppercase tracking-widest text-smoke">
+                Next set weight
+              </p>
+              <span className="text-xs text-fog">
+                last set: {fmtWeight(lastWeightKg ?? 0, unit)}
+              </span>
+            </div>
+            <div className="mt-3 flex items-center gap-3">
+              <span className="font-display text-3xl font-bold text-chalk">
+                {displayWeight(nextWeightKg ?? 0, unit)}
+                <span className="ml-1 text-base text-fog">{unit}</span>
+              </span>
+              <div className="ml-auto flex flex-wrap gap-2">
+                {incrementsKg(unit).map((inc) => (
+                  <button
+                    key={`m${inc}`}
+                    onClick={() => onWeightChange(Math.max(0, (nextWeightKg ?? 0) - inc))}
+                    className="rounded-xl border border-white/10 bg-white/[0.03] px-2.5 py-2 text-xs font-semibold text-fog hover:text-chalk"
+                  >
+                    −{displayWeight(inc, unit)}
+                  </button>
+                ))}
+                {incrementsKg(unit).map((inc) => (
+                  <button
+                    key={`p${inc}`}
+                    onClick={() => onWeightChange((nextWeightKg ?? 0) + inc)}
+                    className="rounded-xl border border-ember/40 bg-ember/10 px-2.5 py-2 text-xs font-semibold text-chalk"
+                  >
+                    +{displayWeight(inc, unit)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                onClick={() => onWeightChange(lastWeightKg ?? 0)}
+                className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-fog hover:text-chalk"
+              >
+                Same as last
+              </button>
+              <input
+                type="number"
+                min={0}
+                step={unit === "kg" ? 2.5 : 5}
+                value={displayWeight(nextWeightKg ?? 0, unit) || ""}
+                placeholder="Custom"
+                onChange={(e) => onWeightChange(toKg(Math.max(0, Number(e.target.value) || 0), unit))}
+                className="h-9 w-24 rounded-xl border border-white/10 bg-white/[0.03] px-3 text-center text-sm text-chalk outline-none focus:border-ember/50"
+              />
+            </div>
+          </div>
+        )}
 
         {/* Set summary */}
         <h3 className="font-display mt-8 mb-3 text-lg font-semibold uppercase tracking-wide">

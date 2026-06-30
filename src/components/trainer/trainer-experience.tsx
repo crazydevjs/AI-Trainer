@@ -9,6 +9,15 @@ import { Switch } from "@/components/ui/switch";
 import { getExerciseConfig } from "@/lib/pose/exercises";
 import { unlockVoice } from "@/lib/voice";
 import { loadFacing, saveFacing, otherFacing, type Facing } from "@/lib/camera";
+import {
+  loadUnit,
+  saveUnit,
+  displayWeight,
+  toKg,
+  incrementsKg,
+  fmtWeight,
+  type Unit,
+} from "@/lib/weight";
 import { LiveSession, type SessionResult } from "./live-session";
 import { SessionReport } from "./session-report";
 import { CameraGuide } from "./camera-guide";
@@ -24,19 +33,31 @@ export interface TrainerExercise {
   muscles: string[];
   secondaryMuscles: string[];
   formTips: string[];
+  equipment: string[];
 }
+
+export interface LiftHistory {
+  bestWeightKg: number;
+  bestVolumeKg: number;
+  lastWeightKg: number;
+}
+
+const WEIGHTED_RE = /barbell|dumbbell|kettlebell|ez bar|cable|machine|plate|leg press|smith/i;
 
 type Phase = "setup" | "camera" | "active" | "report";
 
 export function TrainerExperience({
   exercise,
   bodyWeightKg,
+  history,
 }: {
   exercise: TrainerExercise;
   bodyWeightKg: number;
+  history: LiftHistory;
 }) {
   const router = useRouter();
   const isHold = getExerciseConfig(exercise.poseKey).type === "hold";
+  const weighted = !isHold && exercise.equipment.some((e) => WEIGHTED_RE.test(e));
   const [phase, setPhase] = useState<Phase>("setup");
   const [sets, setSets] = useState(3);
   const [reps, setReps] = useState(isHold ? 30 : 10);
@@ -45,10 +66,15 @@ export function TrainerExperience({
   const [voiceOn, setVoiceOn] = useState(true);
   const [facing, setFacing] = useState<Facing>("user");
   const [recordOn, setRecordOn] = useState(false);
+  const [unit, setUnit] = useState<Unit>("kg");
+  const [weightKg, setWeightKg] = useState(history.lastWeightKg || 0);
   const recorder = useWorkoutRecorder();
 
-  // restore the last-used camera
-  useEffect(() => setFacing(loadFacing()), []);
+  // restore the last-used camera + weight unit
+  useEffect(() => {
+    setFacing(loadFacing());
+    setUnit(loadUnit());
+  }, []);
   const flipCamera = () =>
     setFacing((f) => {
       const next = otherFacing(f);
@@ -82,6 +108,10 @@ export function TrainerExperience({
         onFlipCamera={flipCamera}
         recorder={recorder}
         recordEnabled={recordOn}
+        weighted={weighted}
+        unit={unit}
+        startWeightKg={weightKg}
+        history={history}
         isHold={isHold}
         voiceOn={voiceOn}
         bodyWeightKg={bodyWeightKg}
@@ -100,6 +130,8 @@ export function TrainerExperience({
         exercise={exercise}
         result={result}
         recording={recorder.result}
+        unit={unit}
+        history={history}
         onRepeat={() => {
           recorder.clear();
           setResult(null);
@@ -183,6 +215,63 @@ export function TrainerExperience({
             />
           </div>
         </div>
+
+        {weighted && (
+          <div className="mt-4">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-xs uppercase tracking-widest text-smoke">
+                Working weight (Set 1)
+              </p>
+              <div className="flex overflow-hidden rounded-lg border border-white/10">
+                {(["kg", "lbs"] as Unit[]).map((u) => (
+                  <button
+                    key={u}
+                    type="button"
+                    onClick={() => {
+                      setUnit(u);
+                      saveUnit(u);
+                    }}
+                    className={`px-2.5 py-1 text-xs font-semibold ${
+                      unit === u ? "bg-ember text-white" : "text-fog"
+                    }`}
+                  >
+                    {u}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={0}
+                step={unit === "kg" ? 2.5 : 5}
+                value={displayWeight(weightKg, unit) || ""}
+                placeholder="0"
+                onChange={(e) => setWeightKg(toKg(Math.max(0, Number(e.target.value) || 0), unit))}
+                className="h-12 w-24 rounded-2xl border border-white/10 bg-white/[0.03] px-3 text-center text-lg font-bold text-chalk outline-none focus:border-ember/50"
+              />
+              <span className="text-sm text-fog">{unit}</span>
+              <div className="ml-auto flex gap-2">
+                {incrementsKg(unit).map((inc) => (
+                  <button
+                    key={inc}
+                    type="button"
+                    onClick={() => setWeightKg((w) => Math.max(0, w + inc))}
+                    className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-semibold text-chalk hover:border-white/25"
+                  >
+                    +{displayWeight(inc, unit)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {history.bestWeightKg > 0 && (
+              <p className="mt-2 text-[11px] text-smoke">
+                Your best: {fmtWeight(history.bestWeightKg, unit)} · last session:{" "}
+                {fmtWeight(history.lastWeightKg, unit)}
+              </p>
+            )}
+          </div>
+        )}
 
         <div className="mt-4">
           <p className="mb-2 text-xs uppercase tracking-widest text-smoke">

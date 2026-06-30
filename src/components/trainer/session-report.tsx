@@ -20,7 +20,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { ProgressRing } from "@/components/ui/progress-ring";
 import { speak } from "@/lib/voice";
-import type { TrainerExercise } from "./trainer-experience";
+import { fmtWeight, totalVolume, epley1RM, type Unit } from "@/lib/weight";
+import type { TrainerExercise, LiftHistory } from "./trainer-experience";
 import type { SessionResult } from "./live-session";
 import type { RecordResult } from "./use-workout-recorder";
 
@@ -28,11 +29,15 @@ export function SessionReport({
   exercise,
   result,
   recording,
+  unit = "kg",
+  history,
   onRepeat,
 }: {
   exercise: TrainerExercise;
   result: SessionResult;
   recording?: RecordResult | null;
+  unit?: Unit;
+  history?: LiftHistory;
   onRepeat: () => void;
 }) {
   const router = useRouter();
@@ -143,6 +148,20 @@ export function SessionReport({
     ) / 10;
   const score = overall ?? localOverall;
 
+  // strength stats
+  const hasWeight = result.sets.some((s) => (s.weightKg ?? 0) > 0);
+  const volume = totalVolume(result.sets);
+  const topWeightKg = Math.max(0, ...result.sets.map((s) => s.weightKg ?? 0));
+  const bestSet = result.sets.reduce(
+    (b, s) => ((s.weightKg ?? 0) > (b?.weightKg ?? 0) ? s : b),
+    result.sets[0]
+  );
+  const est1RM = bestSet?.weightKg ? epley1RM(bestSet.weightKg, bestSet.reps) : 0;
+  const isPR =
+    !!history &&
+    (topWeightKg > history.bestWeightKg ||
+      result.sets.some((s) => (s.weightKg ?? 0) * s.reps > history.bestVolumeKg));
+
   return (
     <main className="relative flex min-h-screen flex-col items-center justify-center px-4 py-10">
       <motion.div
@@ -197,6 +216,41 @@ export function SessionReport({
           <Stat icon={<Timer className="h-4 w-4 text-neon" />} value={fmt(result.durationSec)} label="time" />
           <Stat icon={<TrendingUp className="h-4 w-4 text-amber" />} value={`${result.stabilityScore}%`} label="stability" />
         </div>
+
+        {/* Strength / load */}
+        {hasWeight && (
+          <div className="mt-4 rounded-2xl border border-flame/20 bg-flame/[0.06] p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-widest text-flame">
+                <TrendingUp className="h-4 w-4" />
+                Strength
+              </h2>
+              {isPR && (
+                <span className="rounded-full border border-amber/50 bg-amber/15 px-2.5 py-0.5 text-xs font-bold text-amber">
+                  🏆 New PR
+                </span>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              {result.sets.map((s) => (
+                <div key={s.setNumber} className="flex items-center justify-between text-sm">
+                  <span className="text-fog">Set {s.setNumber}</span>
+                  <span className="text-chalk">
+                    {s.reps} × {fmtWeight(s.weightKg ?? 0, unit)}
+                  </span>
+                  <span className="text-smoke">
+                    {Math.round((s.weightKg ?? 0) * s.reps)} {unit === "kg" ? "kg" : "lb"}·vol
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 grid grid-cols-3 gap-3 border-t border-white/5 pt-3">
+              <Stat icon={<TrendingUp className="h-4 w-4 text-flame" />} value={`${volume}`} label="total volume" />
+              <Stat icon={<Trophy className="h-4 w-4 text-amber" />} value={fmtWeight(topWeightKg, unit)} label="top set" />
+              <Stat icon={<Sparkles className="h-4 w-4 text-volt" />} value={fmtWeight(est1RM, unit)} label="est. 1RM" />
+            </div>
+          </div>
+        )}
 
         {/* Most common mistakes */}
         {result.topMistakes.length > 0 && (
