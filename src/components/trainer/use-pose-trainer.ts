@@ -7,6 +7,8 @@ import { getFormChecks, type Mode } from "@/lib/pose/form-rules";
 import { getCameraSetup } from "@/lib/pose/camera-setup";
 import { RepCounter, type CoachEvent, type CoachState } from "@/lib/pose/rep-counter";
 import { BodyLock, poseBox, type LockState, type Pose } from "@/lib/pose/body-lock";
+import { KeypointSmoother } from "@/lib/pose/one-euro";
+import { use3DFor, type PoseModel } from "@/lib/pose/model-select";
 import { isMirrored, type Facing } from "@/lib/camera";
 
 const SKELETON: [string, string][] = [
@@ -74,6 +76,8 @@ export function usePoseTrainer({
     })
   );
   const lockRef = useRef<BodyLock>(new BodyLock());
+  const smootherRef = useRef(new KeypointSmoother());
+  const prevLockId = useRef<number | null>(null);
   const lastPosesRef = useRef<Pose[]>([]);
   const detectorRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -88,6 +92,7 @@ export function usePoseTrainer({
   const [errorMsg, setErrorMsg] = useState("");
   const [state, setState] = useState<CoachState>(INITIAL_COACH);
   const [lockState, setLockState] = useState<LockState>(INITIAL_LOCK);
+  const [model, setModel] = useState<PoseModel>("2D");
 
   runningRef.current = running;
   onEventRef.current = onEvent;
@@ -101,16 +106,21 @@ export function usePoseTrainer({
         const tf = await import("@tensorflow/tfjs");
         await tf.ready();
         const poseDetection = await import("@tensorflow-models/pose-detection");
-        const detector = await poseDetection.createDetector(
-          poseDetection.SupportedModels.MoveNet,
-          {
-            modelType: poseDetection.movenet.modelType.MULTIPOSE_LIGHTNING,
-            enableTracking: true,
-            trackerType: poseDetection.TrackerType.BoundingBox,
-          }
-        );
+        const want3D = use3DFor(poseKey);
+        const detector = want3D
+          ? await poseDetection.createDetector(poseDetection.SupportedModels.BlazePose, {
+              runtime: "tfjs",
+              modelType: "lite",
+              enableSmoothing: false, // we apply our own One-Euro smoothing
+            })
+          : await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, {
+              modelType: poseDetection.movenet.modelType.MULTIPOSE_LIGHTNING,
+              enableTracking: true,
+              trackerType: poseDetection.TrackerType.BoundingBox,
+            });
         if (cancelled) return detector.dispose();
         detectorRef.current = detector;
+        setModel(want3D ? "3D" : "2D");
         loop();
       } catch (e: any) {
         console.error("Trainer init failed:", e);
@@ -138,6 +148,16 @@ export function usePoseTrainer({
             lock.lockCenter(poses, vw, vh, now);
           }
           const locked = lock.update(poses, now, vw, vh);
+
+          // One-Euro smoothing on the locked athlete (reset when the lock moves
+          // to a different person) → stabler angles, ROM and form analysis.
+          if (locked) {
+            if (lock.lockedId !== prevLockId.current) {
+              smootherRef.current.reset();
+              prevLockId.current = lock.lockedId;
+            }
+            locked.keypoints = smootherRef.current.filter(locked.keypoints, now / 1000);
+          }
 
           let formView: FormView | undefined;
           if (locked && runningRef.current) {
@@ -245,6 +265,7 @@ export function usePoseTrainer({
     status,
     errorMsg,
     state,
+    model,
     lockState,
     lockCenter,
     lockAtClient,

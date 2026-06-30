@@ -217,6 +217,7 @@ export function LiveSession({
     status,
     errorMsg,
     state,
+    model,
     lockState,
     lockCenter,
     lockAtClient,
@@ -564,6 +565,16 @@ export function LiveSession({
           </div>
           <ScoreChip label="Form" value={state.avgForm} />
           <ScoreChip label="ROM" value={state.avgRom} />
+          <div
+            className={`flex items-center rounded-2xl border px-3 py-2 text-center backdrop-blur ${
+              model === "3D"
+                ? "border-volt/50 bg-volt/10 text-volt"
+                : "border-white/15 bg-black/40 text-fog"
+            }`}
+            title={model === "3D" ? "BlazePose 3D (depth/occlusion)" : "MoveNet 2D (fast)"}
+          >
+            <span className="font-display text-sm font-bold">{model}</span>
+          </div>
         </div>
       </div>
 
