@@ -22,6 +22,7 @@ import { LiveSession, type SessionResult } from "./live-session";
 import { SessionReport } from "./session-report";
 import { CameraGuide } from "./camera-guide";
 import { useWorkoutRecorder } from "./use-workout-recorder";
+import { isDevUnlocked, type SessionTags } from "@/lib/dev";
 
 export interface TrainerExercise {
   id: string;
@@ -69,13 +70,26 @@ export function TrainerExperience({
   const [recordOn, setRecordOn] = useState(false);
   const [unit, setUnit] = useState<Unit>("kg");
   const [weightKg, setWeightKg] = useState(history.lastWeightKg || 0);
+  const [isDev, setIsDev] = useState(false);
+  const [tags, setTags] = useState<SessionTags>({});
   const recorder = useWorkoutRecorder();
 
   // restore the last-used camera + weight unit
   useEffect(() => {
     setFacing(loadFacing());
     setUnit(loadUnit());
+    setIsDev(isDevUnlocked());
+    setTags((t) => ({
+      exercise: exercise.name,
+      cameraAngle: "side",
+      device: navigator.userAgent.slice(0, 64),
+      lighting: "normal",
+      ...t,
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  const setTag = <K extends keyof SessionTags>(k: K, v: SessionTags[K]) =>
+    setTags((t) => ({ ...t, [k]: v }));
   const flipCamera = () =>
     setFacing((f) => {
       const next = otherFacing(f);
@@ -134,6 +148,7 @@ export function TrainerExperience({
         recording={recorder.result}
         unit={unit}
         history={history}
+        debugMeta={isDev ? { ...tags, weight: weighted ? `${weightKg} kg` : tags.weight } : undefined}
         onRepeat={() => {
           recorder.clear();
           setResult(null);
@@ -359,6 +374,64 @@ export function TrainerExperience({
             onCheckedChange={setRecordOn}
           />
         </div>
+
+        {isDev && (
+          <details className="mt-4 rounded-2xl border border-volt/30 bg-volt/[0.05] p-4">
+            <summary className="cursor-pointer text-xs font-semibold uppercase tracking-widest text-volt">
+              Dev · session tags
+            </summary>
+            <div className="mt-3 space-y-2 text-sm">
+              <input
+                placeholder="Notes"
+                value={tags.notes ?? ""}
+                onChange={(e) => setTag("notes", e.target.value)}
+                className="h-10 w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 text-chalk outline-none"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  value={tags.cameraAngle ?? "side"}
+                  onChange={(e) => setTag("cameraAngle", e.target.value)}
+                  className="h-10 rounded-xl border border-white/10 bg-white/[0.03] px-2 text-chalk"
+                >
+                  <option value="front">Front</option>
+                  <option value="side">Side</option>
+                  <option value="45">45°</option>
+                </select>
+                <select
+                  value={tags.lighting ?? "normal"}
+                  onChange={(e) => setTag("lighting", e.target.value)}
+                  className="h-10 rounded-xl border border-white/10 bg-white/[0.03] px-2 text-chalk"
+                >
+                  <option value="bright">Bright</option>
+                  <option value="normal">Normal</option>
+                  <option value="dim">Dim</option>
+                </select>
+                <input
+                  placeholder="Environment / gym"
+                  value={tags.environment ?? ""}
+                  onChange={(e) => setTag("environment", e.target.value)}
+                  className="h-10 rounded-xl border border-white/10 bg-white/[0.03] px-3 text-chalk outline-none"
+                />
+                <input
+                  placeholder="Device"
+                  value={tags.device ?? ""}
+                  onChange={(e) => setTag("device", e.target.value)}
+                  className="h-10 rounded-xl border border-white/10 bg-white/[0.03] px-3 text-chalk outline-none"
+                />
+              </div>
+              <div className="flex gap-4 text-xs text-fog">
+                <label className="flex items-center gap-1.5">
+                  <input type="checkbox" checked={!!tags.prAttempt} onChange={(e) => setTag("prAttempt", e.target.checked)} className="accent-ember" />
+                  PR attempt
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <input type="checkbox" checked={!!tags.failureSet} onChange={(e) => setTag("failureSet", e.target.checked)} className="accent-ember" />
+                  Failure set
+                </label>
+              </div>
+            </div>
+          </details>
+        )}
 
         <Button
           size="xl"

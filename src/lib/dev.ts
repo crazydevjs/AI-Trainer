@@ -2,6 +2,21 @@
 
 export type EngineOverride = "auto" | "2d" | "3d";
 
+/** AI/build identifier stamped into exported debug logs. */
+export const AI_BUILD = "forge-ai-1.1";
+
+export interface SessionTags {
+  exercise?: string;
+  weight?: string;
+  cameraAngle?: string;
+  device?: string;
+  lighting?: string;
+  environment?: string;
+  prAttempt?: boolean;
+  failureSet?: boolean;
+  notes?: string;
+}
+
 const DEV = "forge:dev";
 const HUD = "forge:devhud";
 const ENG = "forge:engine";

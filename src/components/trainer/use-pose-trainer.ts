@@ -109,6 +109,11 @@ export function usePoseTrainer({
   const lastSample = useRef(0);
   const lastTelemetry = useRef(0);
   const debugLog = useRef<Record<string, unknown>[]>([]);
+  const prevTracking = useRef(true);
+
+  const logEvent = (e: Record<string, unknown>) => {
+    if (debugLog.current.length < 8000) debugLog.current.push(e);
+  };
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number>(0);
   const runningRef = useRef(running);
@@ -212,7 +217,7 @@ export function usePoseTrainer({
             if (fpsEma.current < floor) {
               if (!slowSince.current) slowSince.current = now;
               else if (now - slowSince.current > 2500) {
-                debugLog.current.push({
+                logEvent({
                   t: Math.round(now),
                   event: "fallback-3d-to-2d",
                   fps: Math.round(fpsEma.current),
@@ -242,10 +247,21 @@ export function usePoseTrainer({
           let formView: FormView | undefined;
           if (locked && runningRef.current) {
             const evts = counter.update(locked.keypoints, now);
-            for (const e of evts) onEventRef.current?.(e);
+            for (const e of evts) {
+              onEventRef.current?.(e);
+              if (e.type === "rep")
+                logEvent({ t: Math.round(now), event: "rep", quality: e.quality, rom: e.rom, form: e.form, confidence: e.confidence });
+              else if (e.type === "badrep")
+                logEvent({ t: Math.round(now), event: "rep-rejected", reason: e.reason });
+            }
             const cs = counter.state();
             setState(cs);
             formView = { color: cs.color, faultJoints: new Set(cs.faultJoints) };
+            // tracking loss / regain events
+            if (cs.tracking !== prevTracking.current) {
+              prevTracking.current = cs.tracking;
+              logEvent({ t: Math.round(now), event: cs.tracking ? "tracking-regained" : "tracking-loss" });
+            }
           }
           draw(canvas, video, poses, lock.lockedId, lock.confidence, mirrored, formView);
           if (now - lastLockEmit.current > 150) {
@@ -277,8 +293,9 @@ export function usePoseTrainer({
           }
           if (runningRef.current && now - lastSample.current > 1000) {
             lastSample.current = now;
-            debugLog.current.push({
+            logEvent({
               t: Math.round(now),
+              event: "sample",
               fps: Math.round(fpsEma.current),
               model: modelRef.current,
               inferenceMs: Math.round(infEma.current),

@@ -160,6 +160,7 @@ export function LiveSession({
   const recStarted = useRef(false);
   const lastRepFlash = useRef(0);
   const [devHud] = useState(() => isDevUnlocked() && getHudEnabled());
+  const fpsHist = useRef<number[]>([]);
   const [currentWeightKg, setCurrentWeightKg] = useState(startWeightKg);
   const [nextWeightKg, setNextWeightKg] = useState(startWeightKg);
   const bestWeightRef = useRef(history.bestWeightKg);
@@ -238,6 +239,14 @@ export function LiveSession({
     facing,
     onEvent: handleEvent,
   });
+
+  if (devHud) {
+    const h = fpsHist.current;
+    if (h[h.length - 1] !== telemetry.fps) {
+      h.push(telemetry.fps);
+      if (h.length > 48) h.shift();
+    }
+  }
 
   // Greet on first ready + keep the coach talking during quiet stretches.
   useEffect(() => {
@@ -607,6 +616,7 @@ export function LiveSession({
         <div className="absolute right-3 top-28 z-30 w-44 space-y-0.5 rounded-xl border border-volt/30 bg-black/75 p-3 font-mono text-[11px] text-fog backdrop-blur">
           <p className="mb-1 font-bold text-volt">DEV HUD</p>
           <Row2 k="FPS" v={`${telemetry.fps}`} />
+          <Sparkline data={fpsHist.current} max={60} />
           <Row2 k="engine" v={telemetry.model + (telemetry.fallbackActive ? " (fb)" : "")} />
           <Row2 k="fallback" v={telemetry.fallbackActive ? "active" : "—"} />
           <Row2 k="conf" v={`${telemetry.confidence}%`} />
@@ -943,6 +953,25 @@ export function LiveSession({
         </Button>
       </div>
     </div>
+  );
+}
+
+function Sparkline({ data, max }: { data: number[]; max: number }) {
+  const w = 152;
+  const h = 30;
+  const n = data.length;
+  const pts =
+    n > 1
+      ? data
+          .map((d, i) => `${(i / (n - 1)) * w},${h - Math.max(0, Math.min(1, d / max)) * h}`)
+          .join(" ")
+      : "";
+  const y30 = h - Math.min(1, 30 / max) * h; // 30 fps reference line
+  return (
+    <svg width={w} height={h} className="my-1 block w-full">
+      <line x1="0" y1={y30} x2={w} y2={y30} stroke="rgba(255,255,255,0.15)" strokeWidth="1" strokeDasharray="3 3" />
+      {pts && <polyline points={pts} fill="none" stroke="#2bd4ff" strokeWidth="1.5" />}
+    </svg>
   );
 }
 

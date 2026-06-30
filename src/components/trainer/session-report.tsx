@@ -21,7 +21,8 @@ import { Button } from "@/components/ui/button";
 import { ProgressRing } from "@/components/ui/progress-ring";
 import { speak } from "@/lib/voice";
 import { fmtWeight, totalVolume, epley1RM, type Unit } from "@/lib/weight";
-import { isDevUnlocked } from "@/lib/dev";
+import { isDevUnlocked, AI_BUILD, type SessionTags } from "@/lib/dev";
+import { detectTier } from "@/lib/pose/device-tier";
 import type { TrainerExercise, LiftHistory } from "./trainer-experience";
 import type { SessionResult } from "./live-session";
 import type { RecordResult } from "./use-workout-recorder";
@@ -32,6 +33,7 @@ export function SessionReport({
   recording,
   unit = "kg",
   history,
+  debugMeta,
   onRepeat,
 }: {
   exercise: TrainerExercise;
@@ -39,6 +41,7 @@ export function SessionReport({
   recording?: RecordResult | null;
   unit?: Unit;
   history?: LiftHistory;
+  debugMeta?: SessionTags;
   onRepeat: () => void;
 }) {
   const router = useRouter();
@@ -341,18 +344,10 @@ export function SessionReport({
 
         {isDevUnlocked() && result.debugLog && result.debugLog.length > 0 && (
           <button
-            onClick={() => {
-              const blob = new Blob([JSON.stringify(result.debugLog, null, 2)], {
-                type: "application/json",
-              });
-              const a = document.createElement("a");
-              a.href = URL.createObjectURL(blob);
-              a.download = `forge-debug-${exercise.slug}-${Date.now()}.json`;
-              a.click();
-            }}
+            onClick={() => exportDebug(exercise, result, unit, debugMeta)}
             className="mt-4 w-full rounded-xl border border-volt/30 bg-volt/10 px-3 py-2 text-xs font-mono text-volt"
           >
-            ⤓ Export debug log ({result.debugLog.length} samples)
+            ⤓ Export debug log ({result.debugLog.length} entries)
           </button>
         )}
       </motion.div>
@@ -383,6 +378,59 @@ function Stat({ icon, value, label }: { icon: React.ReactNode; value: string; la
       <p className="text-xs text-smoke">{label}</p>
     </div>
   );
+}
+
+function exportDebug(
+  exercise: TrainerExercise,
+  result: SessionResult,
+  unit: Unit,
+  meta?: SessionTags
+) {
+  const log = result.debugLog ?? [];
+  const samples = log.filter((e) => e.event === "sample");
+  const mean = (key: string) => {
+    const vals = samples.map((s) => Number(s[key]) || 0);
+    return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
+  };
+  const count = (ev: string) => log.filter((e) => e.event === ev).length;
+  const lastSample = samples[samples.length - 1];
+
+  const report = {
+    meta: {
+      exercise: exercise.name,
+      exerciseSlug: exercise.slug,
+      timestamp: new Date().toISOString(),
+      aiBuild: AI_BUILD,
+      deviceTier: detectTier(),
+      unit,
+      ...meta,
+    },
+    summary: {
+      durationSec: result.durationSec,
+      poseEngineFinal: (lastSample?.model as string) ?? "2D",
+      avgFps: mean("fps"),
+      avgInferenceMs: mean("inferenceMs"),
+      avgConfidence: mean("confidence"),
+      avgLandmarks: mean("landmarks"),
+      repsCounted: count("rep"),
+      repsRejected: count("rep-rejected"),
+      fallbackEvents: count("fallback-3d-to-2d"),
+      trackingLossEvents: count("tracking-loss"),
+      totalReps: result.totalReps,
+      invalidReps: result.invalidReps,
+      formScore: result.formScore,
+      romScore: result.romScore,
+      stabilityScore: result.stabilityScore,
+    },
+    sets: result.sets,
+    log,
+  };
+
+  const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `forge-debug-${exercise.slug}-${Date.now()}.json`;
+  a.click();
 }
 
 function fmt(sec: number) {
