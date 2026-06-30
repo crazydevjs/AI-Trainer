@@ -25,7 +25,13 @@ import type { Tier } from "./device-tier";
  *  - Mid/high start 3D for 3D-exercises; the runtime FPS monitor downgrades
  *    mid-range devices if they can't sustain it.
  */
-export function chooseModel(poseKey: string | null | undefined, tier: Tier): PoseModel {
+export function chooseModel(
+  poseKey: string | null | undefined,
+  tier: Tier,
+  override: "auto" | "2d" | "3d" = "auto"
+): PoseModel {
+  if (override === "2d") return "2D";
+  if (override === "3d") return "3D";
   if (!use3DFor(poseKey)) return "2D";
   return tier === "low" ? "2D" : "3D";
 }

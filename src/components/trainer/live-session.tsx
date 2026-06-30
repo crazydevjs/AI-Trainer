@@ -33,6 +33,7 @@ import {
 import { Coach } from "@/lib/coach";
 import { analyzeSet, type SetReport } from "@/lib/pose/set-analysis";
 import { isMirrored, type Facing } from "@/lib/camera";
+import { isDevUnlocked, getHudEnabled } from "@/lib/dev";
 import { displayWeight, fmtWeight, type Unit } from "@/lib/weight";
 import { RestScreen } from "./rest-screen";
 import type { WorkoutRecorder, RecorderHud } from "./use-workout-recorder";
@@ -57,6 +58,7 @@ export interface SessionResult {
     romScore?: number;
     weightKg?: number;
   }[];
+  debugLog?: Record<string, unknown>[];
 }
 
 type Cue = { text: string; id: number; tone: "praise" | "correct" | "bad" };
@@ -156,6 +158,8 @@ export function LiveSession({
   const announced15 = useRef(false);
   const hudRef = useRef<RecorderHud>({ exercise: exercise.name, rep: "0", set: "Set 1" });
   const recStarted = useRef(false);
+  const lastRepFlash = useRef(0);
+  const [devHud] = useState(() => isDevUnlocked() && getHudEnabled());
   const [currentWeightKg, setCurrentWeightKg] = useState(startWeightKg);
   const [nextWeightKg, setNextWeightKg] = useState(startWeightKg);
   const bestWeightRef = useRef(history.bestWeightKg);
@@ -186,6 +190,7 @@ export function LiveSession({
     (e: CoachEvent) => {
       if (e.type === "rep") {
         repTimes.current.push(performance.now());
+        lastRepFlash.current = Date.now();
         const phrase = coach.goodRep(e.quality);
         setCue({ text: phrase, id: Date.now(), tone: "praise" });
         setRepQuality({
@@ -218,12 +223,14 @@ export function LiveSession({
     errorMsg,
     state,
     model,
+    telemetry,
     lockState,
     lockCenter,
     lockAtClient,
     resetLock,
     getSummary,
     getAttempts,
+    getDebugLog,
   } = usePoseTrainer({
     poseKey: exercise.poseKey,
     running: !paused && !resting && !finishedRef.current,
@@ -320,6 +327,7 @@ export function LiveSession({
       completionPct,
       caloriesBurned: calories,
       topMistakes: s.topMistakes,
+      debugLog: getDebugLog(),
       sets:
         completedSets.current.length > 0
           ? completedSets.current
@@ -461,6 +469,14 @@ export function LiveSession({
   }, [resting, restLeft]);
 
   const inSetCount = Math.max(0, liveCount - setStartCount.current);
+  const repState =
+    Date.now() - lastRepFlash.current < 700
+      ? "Complete"
+      : state.repPhase === "idle"
+        ? "Idle"
+        : state.repPhase === "down"
+          ? "Down"
+          : "Up";
 
   // keep the recorder's burned-in overlay text current
   hudRef.current = {
@@ -583,6 +599,21 @@ export function LiveSession({
         <div className="absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-ember/50 bg-black/60 px-3 py-1 text-xs font-bold text-ember backdrop-blur">
           <span className={`h-2.5 w-2.5 rounded-full bg-ember ${recorder.paused ? "" : "animate-pulse"}`} />
           {recorder.paused ? "PAUSED" : "REC"}
+        </div>
+      )}
+
+      {/* Developer telemetry HUD (dev mode only) */}
+      {devHud && status === "ready" && (
+        <div className="absolute right-3 top-28 z-30 w-44 space-y-0.5 rounded-xl border border-volt/30 bg-black/75 p-3 font-mono text-[11px] text-fog backdrop-blur">
+          <p className="mb-1 font-bold text-volt">DEV HUD</p>
+          <Row2 k="FPS" v={`${telemetry.fps}`} />
+          <Row2 k="engine" v={telemetry.model + (telemetry.fallbackActive ? " (fb)" : "")} />
+          <Row2 k="fallback" v={telemetry.fallbackActive ? "active" : "—"} />
+          <Row2 k="conf" v={`${telemetry.confidence}%`} />
+          <Row2 k="landmarks" v={`${telemetry.landmarks}`} />
+          <Row2 k="inference" v={`${telemetry.inferenceMs} ms`} />
+          <Row2 k="rep" v={repState} />
+          <Row2 k="exercise" v={exercise.slug} />
         </div>
       )}
 
@@ -911,6 +942,15 @@ export function LiveSession({
           End workout
         </Button>
       </div>
+    </div>
+  );
+}
+
+function Row2({ k, v }: { k: string; v: string }) {
+  return (
+    <div className="flex justify-between gap-2">
+      <span>{k}</span>
+      <span className="text-chalk">{v}</span>
     </div>
   );
 }

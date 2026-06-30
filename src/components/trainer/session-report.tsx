@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { ProgressRing } from "@/components/ui/progress-ring";
 import { speak } from "@/lib/voice";
 import { fmtWeight, totalVolume, epley1RM, type Unit } from "@/lib/weight";
+import { isDevUnlocked } from "@/lib/dev";
 import type { TrainerExercise, LiftHistory } from "./trainer-experience";
 import type { SessionResult } from "./live-session";
 import type { RecordResult } from "./use-workout-recorder";
@@ -337,6 +338,23 @@ export function SessionReport({
             Train again
           </Button>
         </div>
+
+        {isDevUnlocked() && result.debugLog && result.debugLog.length > 0 && (
+          <button
+            onClick={() => {
+              const blob = new Blob([JSON.stringify(result.debugLog, null, 2)], {
+                type: "application/json",
+              });
+              const a = document.createElement("a");
+              a.href = URL.createObjectURL(blob);
+              a.download = `forge-debug-${exercise.slug}-${Date.now()}.json`;
+              a.click();
+            }}
+            className="mt-4 w-full rounded-xl border border-volt/30 bg-volt/10 px-3 py-2 text-xs font-mono text-volt"
+          >
+            ⤓ Export debug log ({result.debugLog.length} samples)
+          </button>
+        )}
       </motion.div>
     </main>
   );

@@ -11,6 +11,7 @@ import { KeypointSmoother } from "@/lib/pose/one-euro";
 import { chooseModel, type PoseModel } from "@/lib/pose/model-select";
 import { detectTier } from "@/lib/pose/device-tier";
 import { loadSmoothing } from "@/lib/pose/smoothing-config";
+import { getEngineOverride, type EngineOverride } from "@/lib/dev";
 import { isMirrored, type Facing } from "@/lib/camera";
 
 const SKELETON: [string, string][] = [
@@ -46,7 +47,17 @@ const INITIAL_COACH: CoachState = {
   color: "idle",
   confidence: 0,
   orientation: "unknown",
+  repPhase: "idle",
 };
+
+export interface Telemetry {
+  fps: number;
+  model: PoseModel;
+  fallbackActive: boolean;
+  confidence: number; // 0..100
+  landmarks: number;
+  inferenceMs: number;
+}
 
 const INITIAL_LOCK: LockState = {
   status: "idle",
@@ -93,6 +104,11 @@ export function usePoseTrainer({
   const slowSince = useRef(0);
   const downgraded = useRef(false);
   const lastFrameTs = useRef(0);
+  const overrideRef = useRef<EngineOverride>("auto");
+  const infEma = useRef(0);
+  const lastSample = useRef(0);
+  const lastTelemetry = useRef(0);
+  const debugLog = useRef<Record<string, unknown>[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number>(0);
   const runningRef = useRef(running);
@@ -106,6 +122,14 @@ export function usePoseTrainer({
   const [state, setState] = useState<CoachState>(INITIAL_COACH);
   const [lockState, setLockState] = useState<LockState>(INITIAL_LOCK);
   const [model, setModel] = useState<PoseModel>("2D");
+  const [telemetry, setTelemetry] = useState<Telemetry>({
+    fps: 0,
+    model: "2D",
+    fallbackActive: false,
+    confidence: 0,
+    landmarks: 0,
+    inferenceMs: 0,
+  });
 
   runningRef.current = running;
   onEventRef.current = onEvent;
@@ -120,7 +144,8 @@ export function usePoseTrainer({
         await tf.ready();
         const poseDetection = await import("@tensorflow-models/pose-detection");
         pdRef.current = poseDetection;
-        const chosen = chooseModel(poseKey, tierRef.current);
+        overrideRef.current = getEngineOverride();
+        const chosen = chooseModel(poseKey, tierRef.current, overrideRef.current);
         const detector =
           chosen === "3D"
             ? await poseDetection.createDetector(poseDetection.SupportedModels.BlazePose, {
@@ -168,22 +193,32 @@ export function usePoseTrainer({
         try {
           const vw = video.videoWidth || 640;
           const vh = video.videoHeight || 480;
+          const tInf = performance.now();
           const poses = (await detector.estimatePoses(video, { flipHorizontal: false })) as Pose[];
+          const infMs = performance.now() - tInf;
+          infEma.current = infEma.current ? infEma.current * 0.9 + infMs * 0.1 : infMs;
           lastPosesRef.current = poses;
           const now = performance.now();
           const mirrored = isMirrored(facingRef.current);
 
-          // rolling FPS + dynamic 3D→2D fallback when a device can't keep up
+          // rolling FPS + dynamic 3D→2D fallback (Auto mode only)
           if (lastFrameTs.current) {
             const dt = now - lastFrameTs.current;
             if (dt > 0) fpsEma.current = fpsEma.current * 0.9 + (1000 / dt) * 0.1;
           }
           lastFrameTs.current = now;
-          if (!downgraded.current && modelRef.current === "3D") {
+          if (overrideRef.current === "auto" && !downgraded.current && modelRef.current === "3D") {
             const floor = tierRef.current === "mid" ? 24 : 18;
             if (fpsEma.current < floor) {
               if (!slowSince.current) slowSince.current = now;
-              else if (now - slowSince.current > 2500) downgradeTo2D();
+              else if (now - slowSince.current > 2500) {
+                debugLog.current.push({
+                  t: Math.round(now),
+                  event: "fallback-3d-to-2d",
+                  fps: Math.round(fpsEma.current),
+                });
+                downgradeTo2D();
+              }
             } else {
               slowSince.current = 0;
             }
@@ -216,6 +251,41 @@ export function usePoseTrainer({
           if (now - lastLockEmit.current > 150) {
             lastLockEmit.current = now;
             setLockState(lock.state());
+          }
+
+          // --- developer telemetry + debug log ---
+          const lmCount = locked
+            ? locked.keypoints.filter((k) => (k.score ?? 0) > 0.3).length
+            : 0;
+          const conf = locked
+            ? Math.round(
+                (locked.keypoints.reduce((s, k) => s + (k.score ?? 0), 0) /
+                  (locked.keypoints.length || 1)) *
+                  100
+              )
+            : 0;
+          if (now - lastTelemetry.current > 200) {
+            lastTelemetry.current = now;
+            setTelemetry({
+              fps: Math.round(fpsEma.current),
+              model: modelRef.current,
+              fallbackActive: downgraded.current,
+              confidence: conf,
+              landmarks: lmCount,
+              inferenceMs: Math.round(infEma.current),
+            });
+          }
+          if (runningRef.current && now - lastSample.current > 1000) {
+            lastSample.current = now;
+            debugLog.current.push({
+              t: Math.round(now),
+              fps: Math.round(fpsEma.current),
+              model: modelRef.current,
+              inferenceMs: Math.round(infEma.current),
+              confidence: conf,
+              landmarks: lmCount,
+              reps: counter.reps,
+            });
           }
         } catch {
           /* skip frame */
@@ -311,12 +381,14 @@ export function usePoseTrainer({
     errorMsg,
     state,
     model,
+    telemetry,
     lockState,
     lockCenter,
     lockAtClient,
     resetLock,
     getSummary: () => counterRef.current.summary(),
     getAttempts: () => counterRef.current.getAttempts(),
+    getDebugLog: () => debugLog.current,
   };
 }
 

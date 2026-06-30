@@ -11,6 +11,13 @@ import {
   type SmoothingParams,
 } from "@/lib/pose/smoothing-config";
 import { detectTier } from "@/lib/pose/device-tier";
+import {
+  getEngineOverride,
+  setEngineOverride,
+  getHudEnabled,
+  setHudEnabled,
+  type EngineOverride,
+} from "@/lib/dev";
 
 const UNLOCK_CODE = "forge";
 
@@ -19,6 +26,8 @@ export default function DeveloperSettingsPage() {
   const [params, setParams] = useState<SmoothingParams>(SMOOTHING_DEFAULTS);
   const [saved, setSaved] = useState(false);
   const [tier, setTier] = useState<string>("");
+  const [engine, setEngine] = useState<EngineOverride>("auto");
+  const [hud, setHud] = useState(false);
 
   useEffect(() => {
     // Unlock via ?unlock=forge (persisted). Always available in dev builds.
@@ -28,6 +37,8 @@ export default function DeveloperSettingsPage() {
     setUnlocked(isDev || localStorage.getItem("forge:dev") === "1");
     setParams(loadSmoothing());
     setTier(detectTier());
+    setEngine(getEngineOverride());
+    setHud(getHudEnabled());
   }, []);
 
   if (!unlocked) {
@@ -60,6 +71,49 @@ export default function DeveloperSettingsPage() {
         <span className="font-semibold text-chalk">{tier || "…"}</span>. Changes
         apply the next time you start a workout.
       </p>
+
+      <div className="glass space-y-4 rounded-3xl p-6">
+        <p className="text-xs uppercase tracking-widest text-smoke">Pose engine (A/B)</p>
+        <div className="grid grid-cols-3 gap-2">
+          {([
+            ["auto", "Auto"],
+            ["2d", "Force 2D"],
+            ["3d", "Force 3D"],
+          ] as const).map(([val, label]) => (
+            <button
+              key={val}
+              onClick={() => {
+                setEngine(val);
+                setEngineOverride(val);
+              }}
+              className={`rounded-2xl border px-3 py-2 text-sm font-semibold transition-all ${
+                engine === val
+                  ? "border-ember/60 bg-ember/15 text-chalk"
+                  : "border-white/10 bg-white/[0.03] text-fog hover:text-chalk"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-smoke">
+          Production should stay on <b className="text-chalk">Auto</b>. Applies on the
+          next workout start.
+        </p>
+
+        <label className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+          <span className="text-sm text-chalk">Live debug HUD</span>
+          <input
+            type="checkbox"
+            checked={hud}
+            onChange={(e) => {
+              setHud(e.target.checked);
+              setHudEnabled(e.target.checked);
+            }}
+            className="h-5 w-5 accent-ember"
+          />
+        </label>
+      </div>
 
       <div className="glass space-y-6 rounded-3xl p-6">
         <Slider

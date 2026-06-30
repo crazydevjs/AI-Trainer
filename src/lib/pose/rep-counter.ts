@@ -61,6 +61,8 @@ export interface CoachState {
   danger: boolean;
   color: FormColor;
   orientation: Orientation;
+  /** debug: where in the movement cycle we are */
+  repPhase: "idle" | "down" | "up";
 }
 
 export interface SessionSummary {
@@ -147,6 +149,7 @@ export class RepCounter {
   private faultCounts: Record<string, number> = {};
   private attempts: AttemptRecord[] = [];
 
+  private phaseProgressPrev = 0;
   private gPhase: "up" | "down" = "up";
   private gBaseline = 0;
   private holdPraiseAt = 0;
@@ -482,7 +485,18 @@ export class RepCounter {
       danger,
       color,
       orientation: this.orientation,
+      repPhase: this.repPhaseNow(),
     };
+  }
+
+  private repPhaseNow(): "idle" | "down" | "up" {
+    if (this.phase !== "down") {
+      this.phaseProgressPrev = this.progress;
+      return "idle";
+    }
+    const dir = this.progress >= this.phaseProgressPrev - 0.002 ? "down" : "up";
+    this.phaseProgressPrev = this.progress;
+    return dir;
   }
 
   summary(): SessionSummary {
