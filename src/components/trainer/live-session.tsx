@@ -51,6 +51,8 @@ export interface SessionResult {
   completionPct: number;
   caloriesBurned: number;
   topMistakes: string[];
+  targetReps: number;
+  repsMode: "fixed" | "failure";
   sets: {
     setNumber: number;
     reps: number;
@@ -161,6 +163,7 @@ export function LiveSession({
   const lastRepFlash = useRef(0);
   const [devHud] = useState(() => isDevUnlocked() && getHudEnabled());
   const fpsHist = useRef<number[]>([]);
+  const infHist = useRef<number[]>([]);
   const [currentWeightKg, setCurrentWeightKg] = useState(startWeightKg);
   const [nextWeightKg, setNextWeightKg] = useState(startWeightKg);
   const bestWeightRef = useRef(history.bestWeightKg);
@@ -245,6 +248,11 @@ export function LiveSession({
     if (h[h.length - 1] !== telemetry.fps) {
       h.push(telemetry.fps);
       if (h.length > 48) h.shift();
+    }
+    const g = infHist.current;
+    if (g[g.length - 1] !== telemetry.inferenceMs) {
+      g.push(telemetry.inferenceMs);
+      if (g.length > 48) g.shift();
     }
   }
 
@@ -336,6 +344,8 @@ export function LiveSession({
       completionPct,
       caloriesBurned: calories,
       topMistakes: s.topMistakes,
+      targetReps,
+      repsMode,
       debugLog: getDebugLog(),
       sets:
         completedSets.current.length > 0
@@ -616,12 +626,18 @@ export function LiveSession({
         <div className="absolute right-3 top-28 z-30 w-44 space-y-0.5 rounded-xl border border-volt/30 bg-black/75 p-3 font-mono text-[11px] text-fog backdrop-blur">
           <p className="mb-1 font-bold text-volt">DEV HUD</p>
           <Row2 k="FPS" v={`${telemetry.fps}`} />
-          <Sparkline data={fpsHist.current} max={60} />
+          <Sparkline data={fpsHist.current} max={60} color="#2bd4ff" refValue={30} />
+          <Row2 k="inference" v={`${telemetry.inferenceMs} ms`} />
+          <Sparkline
+            data={infHist.current}
+            max={Math.max(40, ...infHist.current)}
+            color="#ffc24b"
+            refValue={33}
+          />
           <Row2 k="engine" v={telemetry.model + (telemetry.fallbackActive ? " (fb)" : "")} />
           <Row2 k="fallback" v={telemetry.fallbackActive ? "active" : "—"} />
           <Row2 k="conf" v={`${telemetry.confidence}%`} />
           <Row2 k="landmarks" v={`${telemetry.landmarks}`} />
-          <Row2 k="inference" v={`${telemetry.inferenceMs} ms`} />
           <Row2 k="rep" v={repState} />
           <Row2 k="exercise" v={exercise.slug} />
         </div>
@@ -956,9 +972,19 @@ export function LiveSession({
   );
 }
 
-function Sparkline({ data, max }: { data: number[]; max: number }) {
+function Sparkline({
+  data,
+  max,
+  color = "#2bd4ff",
+  refValue,
+}: {
+  data: number[];
+  max: number;
+  color?: string;
+  refValue?: number;
+}) {
   const w = 152;
-  const h = 30;
+  const h = 28;
   const n = data.length;
   const pts =
     n > 1
@@ -966,11 +992,13 @@ function Sparkline({ data, max }: { data: number[]; max: number }) {
           .map((d, i) => `${(i / (n - 1)) * w},${h - Math.max(0, Math.min(1, d / max)) * h}`)
           .join(" ")
       : "";
-  const y30 = h - Math.min(1, 30 / max) * h; // 30 fps reference line
+  const refY = refValue != null ? h - Math.min(1, refValue / max) * h : null;
   return (
     <svg width={w} height={h} className="my-1 block w-full">
-      <line x1="0" y1={y30} x2={w} y2={y30} stroke="rgba(255,255,255,0.15)" strokeWidth="1" strokeDasharray="3 3" />
-      {pts && <polyline points={pts} fill="none" stroke="#2bd4ff" strokeWidth="1.5" />}
+      {refY != null && (
+        <line x1="0" y1={refY} x2={w} y2={refY} stroke="rgba(255,255,255,0.15)" strokeWidth="1" strokeDasharray="3 3" />
+      )}
+      {pts && <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" />}
     </svg>
   );
 }

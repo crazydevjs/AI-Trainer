@@ -46,6 +46,11 @@ export function SessionReport({
 }) {
   const router = useRouter();
   const saved = useRef(false);
+  const sidRef = useRef(
+    typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `s-${Date.now().toString(36)}`
+  );
   const [overall, setOverall] = useState<number | null>(null);
   const [xpGain, setXpGain] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<string[]>([]);
@@ -343,12 +348,20 @@ export function SessionReport({
         </div>
 
         {isDevUnlocked() && result.debugLog && result.debugLog.length > 0 && (
-          <button
-            onClick={() => exportDebug(exercise, result, unit, debugMeta)}
-            className="mt-4 w-full rounded-xl border border-volt/30 bg-volt/10 px-3 py-2 text-xs font-mono text-volt"
-          >
-            ⤓ Export debug log ({result.debugLog.length} entries)
-          </button>
+          <div className="mt-4 flex gap-2">
+            <button
+              onClick={() => exportDebug(sidRef.current, exercise, result, unit, debugMeta)}
+              className="flex-1 rounded-xl border border-volt/30 bg-volt/10 px-3 py-2 text-xs font-mono text-volt"
+            >
+              ⤓ JSON ({result.debugLog.length})
+            </button>
+            <button
+              onClick={() => exportCsv(sidRef.current, exercise, result, unit, debugMeta)}
+              className="flex-1 rounded-xl border border-volt/30 bg-volt/10 px-3 py-2 text-xs font-mono text-volt"
+            >
+              ⤓ CSV (summary)
+            </button>
+          </div>
         )}
       </motion.div>
     </main>
@@ -380,23 +393,52 @@ function Stat({ icon, value, label }: { icon: React.ReactNode; value: string; la
   );
 }
 
+function computeStats(result: SessionResult) {
+  const log = result.debugLog ?? [];
+  const samples = log.filter((e) => e.event === "sample");
+  const nums = (key: string) => samples.map((s) => Number(s[key]) || 0);
+  const mean = (key: string) => {
+    const v = nums(key);
+    return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : 0;
+  };
+  const count = (ev: string) => log.filter((e) => e.event === ev).length;
+  const fpsVals = nums("fps").filter((n) => n > 0);
+  const infVals = nums("inferenceMs");
+  return {
+    poseEngineFinal: (samples[samples.length - 1]?.model as string) ?? "2D",
+    avgFps: mean("fps"),
+    minFps: fpsVals.length ? Math.min(...fpsVals) : 0,
+    avgInferenceMs: mean("inferenceMs"),
+    maxInferenceMs: infVals.length ? Math.max(...infVals) : 0,
+    avgConfidence: mean("confidence"),
+    avgLandmarks: mean("landmarks"),
+    repsCounted: count("rep"),
+    // proxy: the engine rejected these attempts (partial/bad form). True
+    // false/missed counts require ground-truth video review.
+    repsRejected: count("rep-rejected"),
+    fallbackEvents: count("fallback-3d-to-2d"),
+    trackingLossEvents: count("tracking-loss"),
+  };
+}
+
+function download(name: string, blob: Blob) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+}
+
 function exportDebug(
+  sessionId: string,
   exercise: TrainerExercise,
   result: SessionResult,
   unit: Unit,
   meta?: SessionTags
 ) {
-  const log = result.debugLog ?? [];
-  const samples = log.filter((e) => e.event === "sample");
-  const mean = (key: string) => {
-    const vals = samples.map((s) => Number(s[key]) || 0);
-    return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
-  };
-  const count = (ev: string) => log.filter((e) => e.event === ev).length;
-  const lastSample = samples[samples.length - 1];
-
+  const stats = computeStats(result);
   const report = {
     meta: {
+      sessionId,
       exercise: exercise.name,
       exerciseSlug: exercise.slug,
       timestamp: new Date().toISOString(),
@@ -407,15 +449,7 @@ function exportDebug(
     },
     summary: {
       durationSec: result.durationSec,
-      poseEngineFinal: (lastSample?.model as string) ?? "2D",
-      avgFps: mean("fps"),
-      avgInferenceMs: mean("inferenceMs"),
-      avgConfidence: mean("confidence"),
-      avgLandmarks: mean("landmarks"),
-      repsCounted: count("rep"),
-      repsRejected: count("rep-rejected"),
-      fallbackEvents: count("fallback-3d-to-2d"),
-      trackingLossEvents: count("tracking-loss"),
+      ...stats,
       totalReps: result.totalReps,
       invalidReps: result.invalidReps,
       formScore: result.formScore,
@@ -423,14 +457,77 @@ function exportDebug(
       stabilityScore: result.stabilityScore,
     },
     sets: result.sets,
-    log,
+    log: result.debugLog ?? [],
   };
+  download(
+    `forge-debug-${exercise.slug}-${Date.now()}.json`,
+    new Blob([JSON.stringify(report, null, 2)], { type: "application/json" })
+  );
+}
 
-  const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `forge-debug-${exercise.slug}-${Date.now()}.json`;
-  a.click();
+function csvCell(v: unknown) {
+  const s = String(v ?? "");
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function exportCsv(
+  sessionId: string,
+  exercise: TrainerExercise,
+  result: SessionResult,
+  unit: Unit,
+  meta?: SessionTags
+) {
+  const stats = computeStats(result);
+  const ts = new Date().toISOString();
+  const target =
+    result.repsMode === "failure" ? "To failure" : String(result.targetReps ?? "");
+  const headers = [
+    "Timestamp", "Session ID", "Exercise", "Set Number", `Weight (${unit})`,
+    "Target Reps", "Actual Reps", "Camera Angle", "Device Model", "Device Tier",
+    "Pose Engine", "Avg FPS", "Min FPS", "Avg Inference (ms)", "Max Inference (ms)",
+    "Detection Confidence", "Tracking Loss Events", "False Rep Count",
+    "Missed Rep Count (rejected)", "Auto-Fallback Events", "AI Model Version",
+    "Build Version", "Notes/Tags",
+  ];
+  const notes = [meta?.notes, meta?.environment, meta?.lighting, meta?.prAttempt ? "PR-attempt" : "", meta?.failureSet ? "failure-set" : ""]
+    .filter(Boolean)
+    .join("; ");
+
+  const rows = (result.sets.length ? result.sets : [{ setNumber: 1, reps: result.totalReps, weightKg: 0 }]).map((s) => [
+    ts,
+    sessionId,
+    exercise.name,
+    s.setNumber,
+    s.weightKg ? Math.round(fromUnit(s.weightKg, unit) * 10) / 10 : "",
+    target,
+    s.reps,
+    meta?.cameraAngle ?? "",
+    meta?.device ?? "",
+    detectTier(),
+    stats.poseEngineFinal,
+    stats.avgFps,
+    stats.minFps,
+    stats.avgInferenceMs,
+    stats.maxInferenceMs,
+    stats.avgConfidence,
+    stats.trackingLossEvents,
+    0, // false reps — manual (needs video ground truth)
+    stats.repsRejected, // missed/rejected proxy
+    stats.fallbackEvents,
+    "MoveNet/BlazePose",
+    AI_BUILD,
+    notes,
+  ]);
+
+  const csv = [headers, ...rows].map((r) => r.map(csvCell).join(",")).join("\n");
+  download(
+    `forge-debug-${exercise.slug}-${Date.now()}.csv`,
+    new Blob([csv], { type: "text/csv" })
+  );
+}
+
+function fromUnit(kg: number, unit: Unit) {
+  return unit === "kg" ? kg : kg * 2.20462;
 }
 
 function fmt(sec: number) {
