@@ -18,6 +18,8 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2",
     "@hookform/resolvers": "^5.4.0",
     "@prisma/client": "^6.19.3",
     "@radix-ui/react-slot": "^1.3.0",

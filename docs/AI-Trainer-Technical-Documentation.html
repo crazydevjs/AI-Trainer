@@ -380,7 +380,7 @@ Login → Onboarding (goals, level, equipment) → Dashboard
 </table>
 
 <h3>Storage</h3>
-<p>Workout <b>videos stay on the device</b> (recorded via MediaRecorder, saved via download / Web Share) — no media upload cost or storage liability. Only structured session data goes to PostgreSQL. Dev telemetry lives in localStorage.</p>
+<p>Workout <b>videos stay on the device</b> (recorded via MediaRecorder, saved via download / Web Share) — no media upload cost or storage liability. Downloads are always delivered as <b>MP4 (H.264 + AAC)</b>: the recorder prefers native MP4 MediaRecorder muxing (Chrome 126+/Edge/Safari); browsers that only record WebM (Firefox) get an automatic <b>on-device ffmpeg.wasm transcode</b> (<code>src/lib/mp4.ts</code> — libx264, yuv420p, <code>+faststart</code>) with a progress bar on the report screen, so the privacy guarantee holds with no server upload. Filenames are human-readable (<code>Bench-Press-2026-07-02.mp4</code>). If the transcode fails, the WebM still downloads — the video is never lost. Only structured session data goes to PostgreSQL. Dev telemetry lives in localStorage.</p>
 
 <h3>Logging &amp; error handling</h3>
 <ul>
@@ -821,7 +821,7 @@ cos θ = (BA · BC) / (|BA| · |BC|)&nbsp; → &nbsp; θ = arccos(cos θ) × 180
 <tr><td><b>Stability (sway) metric</b></td><td>Hip-sway range ÷ torso length</td><td>O(1)</td><td>Catches swinging/cheating</td><td>View-dependent</td></tr>
 <tr><td><b>Orientation detection</b></td><td>Front vs side from joint geometry</td><td>O(1)</td><td>Makes form checks view-aware</td><td>Ambiguous at 45°</td></tr>
 <tr><td><b>Frame sampling (rAF)</b></td><td>requestAnimationFrame drives the loop</td><td>—</td><td>Syncs to display, pauses hidden tabs</td><td>Coupled to refresh rate</td></tr>
-<tr><td><b>Video encoding pipeline</b></td><td>canvas.captureStream → MediaRecorder (webm/mp4)</td><td>O(frames)</td><td>Burned-in overlays, on-device</td><td>Can't capture system TTS audio on web</td></tr>
+<tr><td><b>Video encoding pipeline</b></td><td>canvas.captureStream → MediaRecorder (native MP4/H.264 preferred, WebM fallback) → ffmpeg.wasm WebM→MP4 transcode on-device when needed</td><td>O(frames)</td><td>Burned-in overlays, universal MP4 downloads, on-device</td><td>Can't capture system TTS audio on web; wasm transcode is slow on weak devices (~31 MB core, lazy-loaded from CDN once)</td></tr>
 <tr><td><b>Throttling/EMA telemetry</b></td><td>FPS/inference EMA, 200 ms HUD throttle</td><td>O(1)</td><td>Low overhead metrics</td><td>Dev-only</td></tr>
 </table>
 </div>

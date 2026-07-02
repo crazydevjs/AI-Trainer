@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   Download,
   Flame,
+  Loader2,
   RotateCcw,
   Share2,
   Sparkles,
@@ -28,6 +29,7 @@ import { getExerciseConfig } from "@/lib/pose/exercises";
 import { getCameraSetup } from "@/lib/pose/camera-setup";
 import { REP_TUNING } from "@/lib/pose/rep-counter";
 import { loadSmoothing } from "@/lib/pose/smoothing-config";
+import { convertToMp4, mp4ConvertSupported, videoFileName } from "@/lib/mp4";
 import type { TrainerExercise, LiftHistory } from "./trainer-experience";
 import type { SessionResult } from "./live-session";
 import type { RecordResult } from "./use-workout-recorder";
@@ -150,15 +152,46 @@ export function SessionReport({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-download the recorded workout (closest thing to gallery-save on web).
-  const downloaded = useRef(false);
-  const fileName = `forge-${exercise.slug}-${Date.now()}.${recording?.ext ?? "webm"}`;
+  // --- MP4 export -----------------------------------------------------------
+  // Native MP4 recordings download as-is. WebM recordings (browsers without
+  // MP4 MediaRecorder support) are transcoded to H.264+AAC MP4 on-device via
+  // ffmpeg.wasm so the file plays on iPhone/Android/desktop and social apps.
+  // If conversion fails, the WebM still downloads — the video is never lost.
+  const needsConvert = !!recording && recording.ext !== "mp4" && mp4ConvertSupported();
+  const [convertPct, setConvertPct] = useState<number | null>(needsConvert ? 0 : null);
+  const [convertFailed, setConvertFailed] = useState(false);
+  const [video, setVideo] = useState<RecordResult | null>(
+    needsConvert ? null : (recording ?? null)
+  );
+  const convertStarted = useRef(false);
+
   useEffect(() => {
-    if (!recording || downloaded.current) return;
+    if (!recording || !needsConvert || convertStarted.current) return;
+    convertStarted.current = true;
+    (async () => {
+      try {
+        const blob = await convertToMp4(recording.blob, (p) => setConvertPct(p));
+        setVideo({ url: URL.createObjectURL(blob), blob, ext: "mp4", mimeType: "video/mp4" });
+      } catch {
+        setConvertFailed(true);
+        setVideo(recording); // fall back — never block the download
+      } finally {
+        setConvertPct(null);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const fileName = videoFileName(exercise.name, video?.ext ?? "mp4");
+
+  // Auto-download the final file (closest thing to gallery-save on web).
+  const downloaded = useRef(false);
+  useEffect(() => {
+    if (!video || downloaded.current) return;
     downloaded.current = true;
     try {
       const a = document.createElement("a");
-      a.href = recording.url;
+      a.href = video.url;
       a.download = fileName;
       document.body.appendChild(a);
       a.click();
@@ -167,11 +200,11 @@ export function SessionReport({
       /* user can use the buttons */
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recording]);
+  }, [video]);
 
   async function shareVideo() {
-    if (!recording) return;
-    const file = new File([recording.blob], fileName, { type: recording.blob.type });
+    if (!video) return;
+    const file = new File([video.blob], fileName, { type: video.blob.type });
     const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
     if (nav.canShare?.({ files: [file] })) {
       try {
@@ -186,7 +219,7 @@ export function SessionReport({
       }
     }
     const a = document.createElement("a");
-    a.href = recording.url;
+    a.href = video.url;
     a.download = fileName;
     a.click();
   }
@@ -329,7 +362,7 @@ export function SessionReport({
           <div className="mt-6 rounded-2xl border border-volt/20 bg-volt/[0.05] p-5">
             <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-widest text-volt">
               <Video className="h-4 w-4" />
-              Workout video saved
+              {convertPct != null ? "Preparing your video" : "Workout video saved"}
             </h2>
             <video
               src={recording.url}
@@ -337,20 +370,49 @@ export function SessionReport({
               playsInline
               className="w-full rounded-xl bg-black"
             />
-            <div className="mt-3 flex gap-3">
-              <Button className="flex-1" onClick={shareVideo}>
-                <Share2 className="h-4 w-4" />
-                Share
-              </Button>
-              <a href={recording.url} download={fileName} className="flex-1">
-                <Button variant="outline" className="w-full">
-                  <Download className="h-4 w-4" />
-                  Download
-                </Button>
-              </a>
-            </div>
+
+            {convertPct != null ? (
+              <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                <p className="flex items-center gap-2 text-sm text-fog">
+                  <Loader2 className="h-4 w-4 animate-spin text-volt" />
+                  Converting to MP4 for universal playback… {convertPct}%
+                </p>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-volt to-neon transition-all duration-300"
+                    style={{ width: `${convertPct}%` }}
+                  />
+                </div>
+                <p className="mt-1.5 text-[11px] text-smoke">
+                  Runs on your device — the video is never uploaded.
+                </p>
+              </div>
+            ) : (
+              video && (
+                <div className="mt-3 flex gap-3">
+                  <Button className="flex-1" onClick={shareVideo}>
+                    <Share2 className="h-4 w-4" />
+                    Share
+                  </Button>
+                  <a href={video.url} download={fileName} className="flex-1">
+                    <Button variant="outline" className="w-full">
+                      <Download className="h-4 w-4" />
+                      Download {video.ext.toUpperCase()}
+                    </Button>
+                  </a>
+                </div>
+              )
+            )}
+
+            {convertFailed && (
+              <p className="mt-2 rounded-lg border border-amber/30 bg-amber/10 px-3 py-1.5 text-center text-[11px] text-amber">
+                MP4 conversion couldn&apos;t finish here — saved as WebM instead (plays in
+                Chrome/Firefox; convert online for iPhone).
+              </p>
+            )}
             <p className="mt-2 text-center text-[11px] text-smoke">
-              Saved to your device. Tap Share to post to Instagram, WhatsApp, or YouTube.
+              {video ? `Saved as ${fileName}. ` : ""}
+              Tap Share to post to Instagram, WhatsApp, or YouTube.
             </p>
           </div>
         )}

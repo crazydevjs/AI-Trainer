@@ -23,12 +23,22 @@ export interface RecordResult {
   url: string;
   blob: Blob;
   ext: string;
+  mimeType: string;
 }
 
+/** Prefer native MP4 (H.264) recording — plays everywhere without conversion.
+ *  Chrome 126+/Edge and Safari support MP4 MediaRecorder muxing; the avc1
+ *  codec strings below are the ones they actually accept (a bare
+ *  "codecs=h264" is rejected by most engines, which is why recordings
+ *  always fell back to WebM before). WebM remains the fallback (Firefox),
+ *  and is transcoded to MP4 on the report screen (lib/mp4.ts). */
 function pickMime(): string {
   if (typeof MediaRecorder === "undefined" || !MediaRecorder.isTypeSupported) return "";
   const cands = [
-    "video/mp4;codecs=h264",
+    'video/mp4;codecs="avc1.42E01F,mp4a.40.2"', // H.264 baseline + AAC
+    'video/mp4;codecs="avc1.42E01F"',
+    "video/mp4;codecs=avc1",
+    "video/mp4",
     "video/webm;codecs=vp9",
     "video/webm;codecs=vp8",
     "video/webm",
@@ -103,7 +113,7 @@ export function useWorkoutRecorder() {
       const type = mr.mimeType || mime || "video/webm";
       const blob = new Blob(chunks.current, { type });
       const ext = type.includes("mp4") ? "mp4" : "webm";
-      setResult({ url: URL.createObjectURL(blob), blob, ext });
+      setResult({ url: URL.createObjectURL(blob), blob, ext, mimeType: type });
       setRecording(false);
       setPaused(false);
       cfgRef.current = null;
