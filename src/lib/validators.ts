@@ -122,7 +122,9 @@ export const workoutLogSchema = z.object({
           .array(
             z.object({
               setNumber: z.coerce.number().int().min(1),
-              reps: z.coerce.number().int().min(0).max(500),
+              reps: z.coerce.number().int().min(0).max(500), // actual reps completed
+              targetReps: z.coerce.number().int().min(0).max(500).optional(), // planned reps
+              failed: z.boolean().optional(), // ended at failure, short of target
               weightKg: z.coerce.number().min(0).max(1000).optional(),
               aiTracked: z.boolean().optional(),
               formScore: z.coerce.number().min(0).max(100).optional(),

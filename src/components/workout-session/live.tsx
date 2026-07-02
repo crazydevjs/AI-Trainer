@@ -11,6 +11,7 @@ import {
   Flag,
   Loader2,
   Minus,
+  OctagonX,
   Plus,
   Sparkles,
   Timer,
@@ -29,6 +30,13 @@ import { AiSetTracker } from "./ai-set-tracker";
 import { ExercisePicker } from "./exercise-picker";
 import { newDraftExercise } from "./planner";
 import type { AiLogChunk, LibraryExercise } from "./experience";
+
+// Placeholder idle-timeout for the "looks like you've stopped" nudge — a
+// dismissible suggestion only, never an automatic end-set. No real gym data
+// yet on how long a genuine rep pause lasts vs. a finished set, so this is a
+// guess to revisit once we have that data (same data-driven approach as the
+// rep-detection tolerances — see the gym-tuning workflow).
+const IDLE_NUDGE_MS = 10_000;
 
 export function LiveWorkout({
   draft,
@@ -61,6 +69,16 @@ export function LiveWorkout({
   const aiBase = useRef(0); // cumulative AI reps when the current set started
   const aiReps = useRef(0);
   const [aiInSet, setAiInSet] = useState(0);
+  const lastAiScores = useRef<{ form: number | null; rom: number | null }>({
+    form: null,
+    rom: null,
+  });
+  const [failPrompt, setFailPrompt] = useState<{ setIdx: number; reps: number } | null>(null);
+
+  // idle nudge: "looks like you've stopped — end this set?" (dismissible only)
+  const lastAiRepAt = useRef(0);
+  const nudgeDismissedAt = useRef(-1); // aiInSet value at last dismissal
+  const [showIdleNudge, setShowIdleNudge] = useState(false);
 
   const stats = computeStats(draft);
   const ex: DraftExercise | undefined = draft.exercises[currentIdx];
@@ -94,7 +112,12 @@ export function LiveWorkout({
   );
 
   const completeSet = useCallback(
-    (exIdx: number, setIdx: number, reps: number, ai?: { form: number | null; rom: number | null }) => {
+    (
+      exIdx: number,
+      setIdx: number,
+      reps: number,
+      opts?: { failed?: boolean; ai?: { form: number | null; rom: number | null } }
+    ) => {
       updateExercise(exIdx, (e) => ({
         ...e,
         sets: e.sets.map((s, k) =>
@@ -102,15 +125,19 @@ export function LiveWorkout({
             ? {
                 ...s,
                 doneReps: reps,
-                aiTracked: !!ai,
-                formScore: ai?.form ?? undefined,
-                romScore: ai?.rom ?? undefined,
+                failed: !!opts?.failed,
+                aiTracked: !!opts?.ai,
+                formScore: opts?.ai?.form ?? undefined,
+                romScore: opts?.ai?.rom ?? undefined,
               }
             : s
         ),
       }));
       aiBase.current = aiReps.current;
       setAiInSet(0);
+      lastAiRepAt.current = Date.now();
+      nudgeDismissedAt.current = -1;
+      setShowIdleNudge(false);
       // rest only if something is still left to do
       const e = draft.exercises[exIdx];
       const remaining = draft.exercises.some((x, i) =>
@@ -125,22 +152,60 @@ export function LiveWorkout({
   const handleAiReps = useCallback(
     (total: number, form: number | null, rom: number | null) => {
       aiReps.current = total;
+      lastAiScores.current = { form, rom };
+      lastAiRepAt.current = Date.now();
+      setShowIdleNudge(false);
       const inSet = total - aiBase.current;
       setAiInSet(inSet);
       if (!ex || firstIncomplete < 0) return;
       const target = ex.sets[firstIncomplete].targetReps || 10;
-      if (inSet >= target) completeSet(currentIdx, firstIncomplete, inSet, { form, rom });
+      if (inSet >= target) completeSet(currentIdx, firstIncomplete, inSet, { ai: { form, rom } });
     },
     [ex, firstIncomplete, currentIdx, completeSet]
   );
 
+  // End the current AI-tracked set early at whatever rep count the AI has
+  // seen so far — the explicit "Failure" action. The decision is always the
+  // user's; the AI only ever *suggests* via the idle nudge below.
+  const endAiSetAtFailure = () => {
+    if (!ex || firstIncomplete < 0) return;
+    completeSet(currentIdx, firstIncomplete, Math.max(0, aiInSet), {
+      failed: true,
+      ai: lastAiScores.current,
+    });
+  };
+
+  // idle nudge: if the AI hasn't seen a new rep in a while mid-set, offer to
+  // end it — a dismissible suggestion, not an automatic action. (The banner's
+  // render condition below already gates on aiOn/firstIncomplete/aiInSet, so
+  // this effect only needs to arm/disarm the interval, not force state.)
+  useEffect(() => {
+    if (!aiOn || firstIncomplete < 0 || aiInSet <= 0) return;
+    const id = setInterval(() => {
+      const idleMs = Date.now() - lastAiRepAt.current;
+      if (idleMs > IDLE_NUDGE_MS && nudgeDismissedAt.current !== aiInSet) {
+        setShowIdleNudge(true);
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [aiOn, firstIncomplete, aiInSet]);
+
+  const dismissIdleNudge = () => {
+    nudgeDismissedAt.current = aiInSet;
+    setShowIdleNudge(false);
+  };
+
   // switching exercise resets the AI baseline (tracker remounts via key)
-  const selectExercise = (i: number) => {
+  const selectExercise = useCallback((i: number) => {
     setCurrentIdx(i);
     aiBase.current = 0;
     aiReps.current = 0;
     setAiInSet(0);
-  };
+    setFailPrompt(null);
+    lastAiRepAt.current = Date.now();
+    nudgeDismissedAt.current = -1;
+    setShowIdleNudge(false);
+  }, []);
 
   const aiCapable = !!ex && ex.aiRepCount && !!ex.poseKey;
 
@@ -226,6 +291,8 @@ export function LiveWorkout({
               onClick={() => {
                 aiBase.current = aiReps.current = 0;
                 setAiInSet(0);
+                lastAiRepAt.current = Date.now();
+                nudgeDismissedAt.current = -1;
                 setAiOn(true);
               }}
               className="flex w-full items-center justify-center gap-2 rounded-2xl border border-volt/40 bg-volt/10 px-4 py-3 text-sm font-semibold text-volt"
@@ -240,25 +307,117 @@ export function LiveWorkout({
       {/* Current exercise sets */}
       {ex && (
         <div className="glass mt-4 rounded-3xl p-5">
-          <div className="mb-3 flex items-center justify-between">
+          <div className="mb-3 flex items-center justify-between gap-2">
             <h2 className="font-display text-lg font-semibold tracking-wide">{ex.name}</h2>
             {aiOn && firstIncomplete >= 0 && (
-              <span className="text-xs font-bold text-volt">
-                AI: {Math.max(0, aiInSet)} / {ex.sets[firstIncomplete].targetReps} reps
-              </span>
+              <div className="flex shrink-0 items-center gap-2">
+                <span className="text-xs font-bold text-volt">
+                  AI: {Math.max(0, aiInSet)} / {ex.sets[firstIncomplete].targetReps} reps
+                </span>
+                <button
+                  onClick={endAiSetAtFailure}
+                  className="flex items-center gap-1 rounded-lg border border-ember/40 bg-ember/10 px-2 py-1 text-[11px] font-bold text-ember hover:bg-ember/20"
+                  title="Stop counting and end this set now"
+                >
+                  <OctagonX className="h-3.5 w-3.5" />
+                  Failure
+                </button>
+              </div>
             )}
           </div>
+
+          {/* Idle nudge — a dismissible suggestion only; the user decides */}
+          {showIdleNudge && aiOn && firstIncomplete >= 0 && (
+            <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-amber/40 bg-amber/10 px-4 py-3">
+              <p className="text-xs text-amber">
+                Looks like you&apos;ve stopped — end this set at {Math.max(0, aiInSet)} reps?
+              </p>
+              <div className="flex shrink-0 gap-2">
+                <button
+                  onClick={dismissIdleNudge}
+                  className="rounded-lg border border-white/15 px-2.5 py-1 text-[11px] font-semibold text-fog hover:text-chalk"
+                >
+                  Keep going
+                </button>
+                <button
+                  onClick={endAiSetAtFailure}
+                  className="rounded-lg border border-amber/50 bg-amber/20 px-2.5 py-1 text-[11px] font-bold text-amber"
+                >
+                  End set
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="space-y-2">
             {ex.sets.map((s, j) => {
               const done = s.doneReps != null;
               const isNext = j === firstIncomplete;
+              const prompting = failPrompt?.setIdx === j;
+
+              // Failure prompt: capture the actual reps performed separately
+              // from the plan, so `targetReps` (planned) is never overwritten.
+              if (prompting) {
+                return (
+                  <div
+                    key={j}
+                    className="rounded-2xl border border-ember/50 bg-ember/[0.08] px-3 py-3"
+                  >
+                    <p className="mb-2 text-center text-xs font-semibold text-ember">
+                      Set {j + 1} · actual reps completed (planned {s.targetReps})
+                    </p>
+                    <div className="flex items-center justify-center gap-3">
+                      <button
+                        onClick={() =>
+                          setFailPrompt((p) => (p ? { ...p, reps: Math.max(0, p.reps - 1) } : p))
+                        }
+                        className="grid h-9 w-9 place-items-center rounded-lg bg-white/5 text-fog hover:text-chalk"
+                        aria-label="One rep less"
+                      >
+                        <Minus className="h-4 w-4" />
+                      </button>
+                      <span className="min-w-12 text-center text-2xl font-bold text-chalk">
+                        {failPrompt.reps}
+                      </span>
+                      <button
+                        onClick={() =>
+                          setFailPrompt((p) => (p ? { ...p, reps: Math.min(500, p.reps + 1) } : p))
+                        }
+                        className="grid h-9 w-9 place-items-center rounded-lg bg-white/5 text-fog hover:text-chalk"
+                        aria-label="One rep more"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        onClick={() => setFailPrompt(null)}
+                        className="flex-1 rounded-xl border border-white/15 py-2 text-xs font-semibold text-fog hover:text-chalk"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => {
+                          completeSet(currentIdx, j, failPrompt.reps, { failed: true });
+                          setFailPrompt(null);
+                        }}
+                        className="flex-1 rounded-xl border border-ember/50 bg-ember/20 py-2 text-xs font-bold text-ember"
+                      >
+                        Confirm failure
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
+
               return (
                 <div
                   key={j}
                   className={`grid grid-cols-[2rem_1fr_1fr_auto] items-center gap-2 rounded-2xl border px-3 py-2 ${
                     done
-                      ? "border-neon/25 bg-neon/[0.05]"
+                      ? s.failed
+                        ? "border-amber/30 bg-amber/[0.05]"
+                        : "border-neon/25 bg-neon/[0.05]"
                       : isNext
                         ? "border-ember/50 bg-ember/[0.08]"
                         : "border-white/10 bg-white/[0.02]"
@@ -302,8 +461,11 @@ export function LiveWorkout({
                       >
                         <Minus className="h-3.5 w-3.5" />
                       </button>
-                      <span className="min-w-10 text-center text-sm font-bold text-neon">
-                        {s.doneReps} reps
+                      <span
+                        className={`min-w-10 text-center text-sm font-bold ${s.failed ? "text-amber" : "text-neon"}`}
+                      >
+                        {s.doneReps}
+                        {s.failed && s.targetReps > s.doneReps! ? ` / ${s.targetReps}` : ""} reps
                       </span>
                       <button
                         onClick={() =>
@@ -343,6 +505,11 @@ export function LiveWorkout({
 
                   {done ? (
                     <div className="flex items-center gap-1">
+                      {s.failed && (
+                        <span className="rounded-full border border-amber/40 bg-amber/10 px-1.5 py-0.5 text-[9px] font-bold text-amber">
+                          Failure
+                        </span>
+                      )}
                       {s.aiTracked && (
                         <span className="rounded-full border border-volt/40 bg-volt/10 px-1.5 py-0.5 text-[9px] font-bold text-volt">
                           AI
@@ -354,7 +521,7 @@ export function LiveWorkout({
                             ...e2,
                             sets: e2.sets.map((s2, k) =>
                               k === j
-                                ? { ...s2, doneReps: null, aiTracked: undefined, formScore: undefined, romScore: undefined }
+                                ? { ...s2, doneReps: null, failed: undefined, aiTracked: undefined, formScore: undefined, romScore: undefined }
                                 : s2
                             ),
                           }))
@@ -367,13 +534,25 @@ export function LiveWorkout({
                       </button>
                     </div>
                   ) : (
-                    <button
-                      onClick={() => completeSet(currentIdx, j, s.targetReps || 0)}
-                      className="flex h-9 items-center gap-1 rounded-xl border border-neon/40 bg-neon/10 px-3 text-xs font-bold text-neon hover:bg-neon/20"
-                    >
-                      <Check className="h-4 w-4" />
-                      Done
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => completeSet(currentIdx, j, s.targetReps || 0)}
+                        className="flex h-9 items-center gap-1 rounded-xl border border-neon/40 bg-neon/10 px-2.5 text-xs font-bold text-neon hover:bg-neon/20"
+                      >
+                        <Check className="h-4 w-4" />
+                        Done
+                      </button>
+                      <button
+                        onClick={() =>
+                          setFailPrompt({ setIdx: j, reps: Math.max(0, (s.targetReps || 1) - 1) })
+                        }
+                        className="flex h-9 items-center gap-1 rounded-xl border border-ember/40 bg-ember/10 px-2.5 text-xs font-bold text-ember hover:bg-ember/20"
+                        title="End this set at failure"
+                      >
+                        <OctagonX className="h-4 w-4" />
+                        Fail
+                      </button>
+                    </div>
                   )}
                 </div>
               );

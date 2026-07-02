@@ -7,6 +7,8 @@ export interface DraftSet {
   targetReps: number;
   /** reps actually performed; null = not completed yet */
   doneReps: number | null;
+  /** ended early via the Failure action — doneReps is < targetReps on purpose */
+  failed?: boolean;
   /** true when the set was counted by the AI camera coach */
   aiTracked?: boolean;
   formScore?: number;
@@ -73,6 +75,7 @@ export interface WorkoutStats {
   totalReps: number;
   volumeKg: number;
   exercisesTouched: number;
+  failureSets: number;
   heaviest: { exerciseName: string; weightKg: number; reps: number } | null;
 }
 
@@ -82,6 +85,7 @@ export function computeStats(d: WorkoutDraft): WorkoutStats {
   let totalReps = 0;
   let volumeKg = 0;
   let exercisesTouched = 0;
+  let failureSets = 0;
   let heaviest: WorkoutStats["heaviest"] = null;
   for (const ex of d.exercises) {
     plannedSets += ex.sets.length;
@@ -92,6 +96,7 @@ export function computeStats(d: WorkoutDraft): WorkoutStats {
       completedSets += 1;
       totalReps += s.doneReps;
       volumeKg += s.weightKg * s.doneReps;
+      if (s.failed) failureSets += 1;
       if (s.weightKg > 0 && (!heaviest || s.weightKg > heaviest.weightKg)) {
         heaviest = { exerciseName: ex.name, weightKg: s.weightKg, reps: s.doneReps };
       }
@@ -104,6 +109,7 @@ export function computeStats(d: WorkoutDraft): WorkoutStats {
     totalReps,
     volumeKg: Math.round(volumeKg * 10) / 10,
     exercisesTouched,
+    failureSets,
     heaviest,
   };
 }
@@ -128,9 +134,10 @@ export function buildCoachSummary(opts: {
   durationSec: number;
   prCount: number;
   aiTrackedSets: number;
+  failureSets?: number;
   completionPct: number; // completed / planned sets
 }): string {
-  const { stats, durationSec, prCount, aiTrackedSets, completionPct } = opts;
+  const { stats, durationSec, prCount, aiTrackedSets, failureSets = 0, completionPct } = opts;
   const lines: string[] = [];
 
   if (prCount > 0) {
@@ -162,6 +169,14 @@ export function buildCoachSummary(opts: {
 
   if (aiTrackedSets > 0) {
     lines.push(`${aiTrackedSets} set${aiTrackedSets === 1 ? "" : "s"} verified rep-by-rep by the AI coach.`);
+  }
+
+  if (failureSets > 0) {
+    lines.push(
+      failureSets === 1
+        ? "You pushed one set to true failure — that's how strength gets built."
+        : `You pushed ${failureSets} sets to true failure — real training, not just numbers on a plan.`
+    );
   }
 
   lines.push("Keep this momentum going.");

@@ -128,6 +128,9 @@ export function WorkoutSummary({
           <Big label="Total reps" value={`${stats.totalReps}`} icon="💥" />
           <Big label="Exercises" value={`${stats.exercisesTouched}`} icon="📋" />
           <Big label="Avg reps / set" value={`${avgReps}`} icon="📈" />
+          {stats.failureSets > 0 && (
+            <Big label="Sets to failure" value={`${stats.failureSets}`} icon="🔥" />
+          )}
         </div>
 
         {stats.heaviest && (

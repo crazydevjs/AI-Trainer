@@ -112,22 +112,38 @@ export default async function WorkoutLogDetailPage({
                 </span>
               )}
             </div>
-            <div className="grid grid-cols-[3rem_1fr_1fr] gap-2 px-1 text-[10px] uppercase tracking-widest text-smoke">
+            <div className="grid grid-cols-[3rem_1fr_1fr_1fr_auto] gap-2 px-1 text-[10px] uppercase tracking-widest text-smoke">
               <span>Set</span>
               <span>Weight</span>
-              <span>Reps</span>
+              <span>Planned</span>
+              <span>Completed</span>
+              <span>Status</span>
             </div>
             <div className="mt-1 space-y-1">
               {ex.sets.map((s) => (
                 <div
                   key={s.id}
-                  className="grid grid-cols-[3rem_1fr_1fr] gap-2 rounded-xl bg-white/[0.03] px-1 py-2 text-sm"
+                  className="grid grid-cols-[3rem_1fr_1fr_1fr_auto] items-center gap-2 rounded-xl bg-white/[0.03] px-1 py-2 text-sm"
                 >
                   <span className="text-center font-bold text-fog">{s.setNumber}</span>
                   <span className="text-chalk">
                     {s.weightKg != null && s.weightKg > 0 ? `${s.weightKg} kg` : "Bodyweight"}
                   </span>
-                  <span className="text-chalk">× {s.reps}</span>
+                  <span className="text-fog">{s.targetReps != null ? `${s.targetReps} reps` : "—"}</span>
+                  <span className={`font-semibold ${s.failed ? "text-amber" : "text-chalk"}`}>
+                    {s.reps} reps
+                  </span>
+                  <span>
+                    {s.failed ? (
+                      <span className="rounded-full border border-amber/40 bg-amber/10 px-2 py-0.5 text-[10px] font-bold text-amber">
+                        Failure
+                      </span>
+                    ) : (
+                      <span className="rounded-full border border-neon/30 bg-neon/[0.06] px-2 py-0.5 text-[10px] font-bold text-neon">
+                        Done
+                      </span>
+                    )}
+                  </span>
                 </div>
               ))}
             </div>

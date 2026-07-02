@@ -396,6 +396,8 @@ model SessionSet {
   session    WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   setNumber  Int
   reps       Int            @default(0)
+  targetReps Int? // planned reps for this set, distinct from `reps` (actual)
+  failed     Boolean        @default(false) // ended at failure, short of target
   weightKg   Float?
   formScore  Float?
   romScore   Float?

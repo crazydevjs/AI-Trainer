@@ -57,6 +57,7 @@ export async function POST(req: Request) {
   let totalVolumeKg = 0;
   let plannedSets = 0;
   let aiTrackedSets = 0;
+  let failureSets = 0;
   let exercisesTouched = 0;
   let heaviest: WorkoutStats["heaviest"] = null;
   for (const ex of d.exercises) {
@@ -69,6 +70,7 @@ export async function POST(req: Request) {
       totalReps += s.reps;
       totalVolumeKg += (s.weightKg ?? 0) * s.reps;
       if (s.aiTracked) aiTrackedSets += 1;
+      if (s.failed) failureSets += 1;
       if ((s.weightKg ?? 0) > 0 && (!heaviest || (s.weightKg ?? 0) > heaviest.weightKg)) {
         heaviest = {
           exerciseName: nameById.get(ex.exerciseId) ?? "Exercise",
@@ -126,11 +128,13 @@ export async function POST(req: Request) {
         totalReps,
         volumeKg: totalVolumeKg,
         exercisesTouched,
+        failureSets,
         heaviest,
       },
       durationSec: d.durationSec,
       prCount: prs.length,
       aiTrackedSets,
+      failureSets,
       completionPct: plannedSets ? Math.round((totalSets / plannedSets) * 100) : 100,
     });
 
@@ -161,7 +165,7 @@ export async function POST(req: Request) {
             userId,
             exerciseId: ex.exerciseId,
             targetSets: ex.sets.length,
-            targetReps: Math.max(1, ...ex.sets.map((s) => s.reps)),
+            targetReps: Math.max(1, ...ex.sets.map((s) => s.targetReps ?? s.reps)),
             startedAt,
             endedAt,
             durationSec: Math.round(d.durationSec / d.exercises.length),
@@ -175,6 +179,8 @@ export async function POST(req: Request) {
               create: done.map((s) => ({
                 setNumber: s.setNumber,
                 reps: s.reps,
+                targetReps: s.targetReps,
+                failed: s.failed ?? false,
                 weightKg: s.weightKg,
                 formScore: s.formScore,
                 romScore: s.romScore,

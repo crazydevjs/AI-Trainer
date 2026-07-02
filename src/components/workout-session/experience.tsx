@@ -123,6 +123,8 @@ export function WorkoutSessionExperience({ library }: { library: LibraryExercise
             sets: ex.sets.map((s, j) => ({
               setNumber: j + 1,
               reps: s.doneReps ?? 0,
+              targetReps: s.targetReps > 0 ? s.targetReps : undefined,
+              failed: s.failed,
               weightKg: s.weightKg > 0 ? s.weightKg : undefined,
               aiTracked: s.aiTracked,
               formScore: s.formScore,
