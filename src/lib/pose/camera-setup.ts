@@ -61,19 +61,33 @@ const SETUPS: Record<string, CameraSetup> = {
     requiredJoints: ["shoulder", "elbow", "wrist"],
     tips: ["Side or 45° angle.", "Keep your chest and arms visible."],
   },
-  "shoulder-press": FRONT_UPPER,
+  "shoulder-press": {
+    view: "45", // front or side both track well; don't nag for a specific one
+    height: "Chest height",
+    distance: "1.5–2 m away",
+    fullBody: false,
+    requiredJoints: ["shoulder", "elbow", "wrist"],
+    tips: [
+      "Face the camera or turn side-on — either works.",
+      "Keep your shoulders, elbows and wrists in frame.",
+      "Heavy set? Move slow — pauses and grinds still count.",
+    ],
+  },
   curl: FRONT_UPPER,
   "hammer-curl": FRONT_UPPER,
   pushdown: FRONT_UPPER,
   "lateral-raise": FRONT_UPPER,
   "front-raise": FRONT_UPPER,
   row: {
-    view: "side",
+    view: "45", // side is ideal but 45° tracks fine; avoid nagging when bent over
     height: "Hip height",
     distance: "2–3 m away",
     fullBody: false,
     requiredJoints: ["shoulder", "elbow", "wrist", "hip"],
-    tips: ["Side-on so I can see your bent-over torso.", "Keep your arms and hips in frame."],
+    tips: [
+      "Side-on or slight 45° so I can see your bent-over torso.",
+      "Keep your arms, hips and the bar path in frame.",
+    ],
   },
   "leg-extension": {
     view: "side",
@@ -92,9 +106,18 @@ const SETUPS: Record<string, CameraSetup> = {
     tips: ["Side-on to the sled.", "Keep your hip, knee and ankle in frame."],
   },
   "pull-down": {
-    ...FRONT_UPPER,
+    // The machine usually blocks a front view, so side and rear are supported.
+    // "45" accepts any orientation the model can see (side / rear / angled).
+    view: "45",
     height: "Seated chest height",
-    tips: ["Face the machine front-on.", "Keep your torso and arms visible."],
+    distance: "2 m away",
+    fullBody: false,
+    requiredJoints: ["shoulder", "elbow", "wrist"],
+    tips: [
+      "Side or rear angle both work — no need to face the camera.",
+      "Keep your shoulders, elbows and wrists in frame.",
+      "Set the phone so the bar path from overhead to chest is visible.",
+    ],
   },
 };
 

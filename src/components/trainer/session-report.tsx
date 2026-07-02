@@ -21,9 +21,13 @@ import { Button } from "@/components/ui/button";
 import { ProgressRing } from "@/components/ui/progress-ring";
 import { speak } from "@/lib/voice";
 import { fmtWeight, totalVolume, epley1RM, type Unit } from "@/lib/weight";
-import { isDevUnlocked, AI_BUILD, type SessionTags } from "@/lib/dev";
+import { isDevUnlocked, AI_BUILD, getEngineOverride, type SessionTags } from "@/lib/dev";
 import { detectTier } from "@/lib/pose/device-tier";
 import { saveSession } from "@/lib/dev-history";
+import { getExerciseConfig } from "@/lib/pose/exercises";
+import { getCameraSetup } from "@/lib/pose/camera-setup";
+import { REP_TUNING } from "@/lib/pose/rep-counter";
+import { loadSmoothing } from "@/lib/pose/smoothing-config";
 import type { TrainerExercise, LiftHistory } from "./trainer-experience";
 import type { SessionResult } from "./live-session";
 import type { RecordResult } from "./use-workout-recorder";
@@ -482,11 +486,21 @@ function exportDebug(
       sessionId,
       exercise: exercise.name,
       exerciseSlug: exercise.slug,
+      poseKey: exercise.poseKey,
       timestamp: new Date().toISOString(),
       aiBuild: AI_BUILD,
       deviceTier: detectTier(),
+      engineOverride: getEngineOverride(),
       unit,
       ...meta,
+    },
+    // Exact tuning the session ran with — so threshold changes are data-driven,
+    // traceable to the config that produced the numbers in `log`.
+    tuning: {
+      exerciseConfig: getExerciseConfig(exercise.poseKey),
+      requiredView: getCameraSetup(exercise.poseKey).view,
+      repEngine: REP_TUNING,
+      smoothing: loadSmoothing(),
     },
     summary: {
       durationSec: result.durationSec,

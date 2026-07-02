@@ -1,5 +1,6 @@
 import {
   angle,
+  angle3D,
   bestSide,
   toMap,
   type Keypoint,
@@ -39,9 +40,46 @@ export type CoachEvent =
       stability: number;
       confidence: number;
       quality: "perfect" | "good";
+      /** tuning telemetry: what the state machine saw for this rep */
+      peak: number;
+      required: number;
+      angleSource: "3D" | "2D";
     }
-  | { type: "badrep"; reason: string }
+  | {
+      type: "badrep";
+      reason: string;
+      peak: number;
+      required: number;
+      rom: number;
+      confidence: number;
+      angleSource: "3D" | "2D";
+    }
   | { type: "cue"; message: string; tone: "correct" | "praise" };
+
+/** Why the last rep attempt was accepted or rejected (dev HUD + debug log). */
+export interface RepDecision {
+  accepted: boolean;
+  reason: string; // "perfect"/"good" or the rejection cue
+  rom: number;
+  peak: number; // deepest progress reached (0..1)
+  required: number; // progress needed to count (0..1)
+  confidence: number; // 0..100
+  at: number; // performance.now() ms
+}
+
+/** Live internals of the rep engine, surfaced for data-driven tuning. */
+export interface RepDebugInfo {
+  side: "left" | "right" | null;
+  joints: string; // e.g. "shoulder→elbow→wrist"
+  angle: number | null; // smoothed joint angle (deg)
+  angleSource: "3D" | "2D";
+  progress: number;
+  peak: number;
+  requiredProgress: number;
+  turnaroundTol: number;
+  wristVeto: boolean; // overhead-press wrist gate currently zeroing progress
+  lastDecision: RepDecision | null;
+}
 
 export type FormColor = "green" | "amber" | "red" | "idle";
 
@@ -63,6 +101,8 @@ export interface CoachState {
   orientation: Orientation;
   /** debug: where in the movement cycle we are */
   repPhase: "idle" | "down" | "up";
+  /** live engine internals for the dev HUD / tuning exports */
+  debug: RepDebugInfo;
 }
 
 export interface SessionSummary {
@@ -81,13 +121,26 @@ export interface SessionSummary {
 // a rep is counted the instant the user reverses out of the bottom after
 // reaching valid depth — no need to return to lockout or pause.
 const ENTER = 0.25; // progress to begin a rep (descending past this)
-const TURN = 0.1; // progress reversal that confirms a direction change
+const TURN = 0.1; // default progress reversal that confirms a direction change
 const MIN_REP_PEAK = 0.5; // ignore fidget movements shallower than this
 const MIN_CONF = 0.3;
 const SMOOTH = 0.35; // lighter smoothing → more responsive
 const SUSTAIN = 6; // frames a form status must persist to be "active"
 const HIGH_CONF = 0.5; // min keypoint confidence to let an error reject a rep
 const CHECK_FROM = 0.35;
+
+/** All engine tuning constants — stamped into debug exports so tuning
+ *  decisions can be tied to the exact values a session ran with. */
+export const REP_TUNING = {
+  ENTER,
+  TURN,
+  MIN_REP_PEAK,
+  MIN_CONF,
+  SMOOTH,
+  SUSTAIN,
+  HIGH_CONF,
+  CHECK_FROM,
+} as const;
 
 const clamp = (n: number, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, n));
 const avg = (a: number[]) => (a.length ? a.reduce((s, n) => s + n, 0) / a.length : 0);
@@ -117,6 +170,15 @@ export class RepCounter {
   private smoothAngle = NaN;
   private progress = 0;
   private tracking = false;
+  /** whether the last rep-angle measurement used 3D world landmarks */
+  angleFrom3D = false;
+
+  // live debug state (dev HUD + tuning exports)
+  private dbgSide: "left" | "right" | null = null;
+  private dbgReqProgress = 0;
+  private dbgTurn = TURN;
+  private dbgWristVeto = false;
+  private lastDecision: RepDecision | null = null;
   private orientation: Orientation = "unknown";
   private lastRepTs = 0;
   private lastTs = 0;
@@ -175,13 +237,14 @@ export class RepCounter {
     return true;
   }
 
-  update(rawKeypoints: Keypoint[], now: number): CoachEvent[] {
+  update(rawKeypoints: Keypoint[], now: number, raw3D?: Keypoint[] | null): CoachEvent[] {
     const dt = this.lastTs ? (now - this.lastTs) / 1000 : 0;
     this.lastTs = now;
     const map = toMap(rawKeypoints);
+    const map3D = raw3D && raw3D.length ? toMap(raw3D) : null;
     if (this.cfg.type === "generic") return this.updateGeneric(map, now);
     if (this.cfg.type === "hold") return this.updateHold(map, dt, now);
-    return this.updateRep(this.cfg, map, now);
+    return this.updateRep(this.cfg, map, now, map3D);
   }
 
   private resetRep() {
@@ -213,14 +276,22 @@ export class RepCounter {
     }
   }
 
-  private updateRep(cfg: RepConfig, map: KeypointMap, now: number): CoachEvent[] {
+  private updateRep(
+    cfg: RepConfig,
+    map: KeypointMap,
+    now: number,
+    map3D: KeypointMap | null
+  ): CoachEvent[] {
     const events: CoachEvent[] = [];
+    const turn = cfg.turnaroundTol ?? TURN;
+    this.dbgTurn = turn;
     const side = bestSide(
       map,
       cfg.joint.map((j) => `left_${j}`),
       cfg.joint.map((j) => `right_${j}`)
     );
     this.tracking = side !== null;
+    this.dbgSide = side;
     if (!side) return events;
 
     const pts = cfg.joint.map((j) => map[`${side}_${j}`]) as Keypoint[];
@@ -229,7 +300,15 @@ export class RepCounter {
       return events;
     }
 
-    const raw = angle(pts[0], pts[1], pts[2]);
+    // Prefer 3D world landmarks (BlazePose): a joint angle measured in 3D is
+    // depth-invariant, so a side/45° camera on a bench press, overhead press,
+    // row or pulldown no longer foreshortens the arm and warps the angle.
+    const pts3 = map3D ? cfg.joint.map((j) => map3D[`${side}_${j}`]) : null;
+    const use3D = !!pts3 && pts3.every((p) => p);
+    this.angleFrom3D = use3D;
+    const raw = use3D
+      ? angle3D(pts3![0], pts3![1], pts3![2])
+      : angle(pts[0], pts[1], pts[2]);
     this.smoothAngle = isNaN(this.smoothAngle) ? raw : this.smoothAngle * (1 - SMOOTH) + raw * SMOOTH;
     const ang = this.smoothAngle;
     let progress = (ang - cfg.startAngle) / (cfg.activeAngle - cfg.startAngle);
@@ -238,10 +317,18 @@ export class RepCounter {
     // is actually overhead — so arms hanging at the sides (also a straight
     // elbow) read as the start, not a rep. Fixes false setup reps + lets heavy,
     // partial-lockout presses still register.
+    this.dbgWristVeto = false;
     if (cfg.requireWristAboveShoulder) {
       const wr = map[`${side}_wrist`];
       const sh = map[`${side}_shoulder`];
-      if (!wr || !sh || (wr.score ?? 0) < 0.3 || wr.y >= sh.y) progress = 0;
+      // Only veto when we can clearly SEE the wrist below the shoulder. When the
+      // wrist is out of frame / low-confidence at lockout (common overhead on a
+      // heavy set) we keep the elbow-angle progress instead of zeroing it —
+      // which previously dropped valid heavy-press reps.
+      if (wr && sh && (wr.score ?? 0) >= 0.4 && wr.y >= sh.y) {
+        progress = 0;
+        this.dbgWristVeto = true;
+      }
     }
 
     this.progress = clamp(progress);
@@ -252,6 +339,7 @@ export class RepCounter {
     const ease = this.mode === "beginner" ? 12 : this.mode === "advanced" ? -6 : 0;
     const requiredActive = cfg.activeAngle + dir * ease;
     const reqProgress = (requiredActive - cfg.startAngle) / (cfg.activeAngle - cfg.startAngle);
+    this.dbgReqProgress = reqProgress;
 
     // ===== UP phase: at/returning to the top, waiting for the next descent =====
     if (this.phase === "up") {
@@ -259,7 +347,7 @@ export class RepCounter {
       this.currentJoints = [];
       this.valley = Math.min(this.valley, this.progress);
       // begin a rep the moment the user is clearly descending from the top
-      if (this.progress > ENTER && this.progress > this.valley + TURN) {
+      if (this.progress > ENTER && this.progress > this.valley + turn) {
         this.phase = "down";
         this.peak = this.progress;
         this.resetRep();
@@ -299,8 +387,10 @@ export class RepCounter {
     }
 
     // Bottom turnaround: the user has reversed out of the bottom → rep is DONE.
-    // Counted instantly mid-ascent — no pause or full lockout required.
-    if (this.progress < this.peak - TURN) {
+    // Counted instantly mid-ascent — no pause or full lockout required. The
+    // reversal threshold (turn) is larger for heavy lifts so a grind/pause near
+    // the bottom isn't misread as multiple reps or a premature turnaround.
+    if (this.progress < this.peak - turn) {
       this.phase = "up";
       this.valley = this.progress;
       this.currentFault = null;
@@ -318,28 +408,46 @@ export class RepCounter {
       const idealProgress = (cfg.idealAngle - cfg.startAngle) / (cfg.activeAngle - cfg.startAngle);
       const rom = Math.round(clamp(this.peak / idealProgress) * 100);
       const confPct = Math.round(repConfidence * 100);
+      const angleSource: "3D" | "2D" = this.angleFrom3D ? "3D" : "2D";
+      const round2 = (n: number) => Math.round(n * 100) / 100;
+      const decide = (accepted: boolean, reason: string): RepDecision => {
+        const d: RepDecision = {
+          accepted,
+          reason,
+          rom,
+          peak: round2(this.peak),
+          required: round2(reqProgress),
+          confidence: confPct,
+          at: now,
+        };
+        this.lastDecision = d;
+        return d;
+      };
 
       // REJECT: insufficient depth (both modes)
       if (this.peak < reqProgress) {
+        const d = decide(false, cfg.incompleteCue);
         this.invalidReps += 1;
         this.faultCounts[cfg.incompleteCue] = (this.faultCounts[cfg.incompleteCue] ?? 0) + 1;
         if (!this.attemptFaults.includes(cfg.incompleteCue)) this.attemptFaults.push(cfg.incompleteCue);
         this.attempts.push({ valid: false, repNumber: 0, form, rom, stability, faults: this.attemptFaults });
-        events.push({ type: "badrep", reason: cfg.incompleteCue });
+        events.push({ type: "badrep", reason: cfg.incompleteCue, peak: d.peak, required: d.required, rom, confidence: confPct, angleSource });
         return events;
       }
       // REJECT: unsafe form — only in Advanced, only sustained high-confidence errors
       if (this.mode === "advanced" && errors > 0 && repConfidence >= HIGH_CONF) {
         const reason = this.firstErrorCue();
+        const d = decide(false, reason);
         this.invalidReps += 1;
         this.attempts.push({ valid: false, repNumber: 0, form, rom, stability, faults: this.attemptFaults });
-        events.push({ type: "badrep", reason });
+        events.push({ type: "badrep", reason, peak: d.peak, required: d.required, rom, confidence: confPct, angleSource });
         return events;
       }
 
       // VALID REP
       const quality: "perfect" | "good" =
         rom >= 90 && form >= 85 && stability >= 80 ? "perfect" : "good";
+      const d = decide(true, quality);
       this.reps += 1;
       this.romScores.push(rom);
       this.formScores.push(form);
@@ -347,7 +455,7 @@ export class RepCounter {
       this.confScores.push(confPct);
       this.attempts.push({ valid: true, repNumber: this.reps, form, rom, stability, faults: this.attemptFaults });
       this.lastRepTs = now;
-      events.push({ type: "rep", reps: this.reps, rom, form, stability, confidence: confPct, quality });
+      events.push({ type: "rep", reps: this.reps, rom, form, stability, confidence: confPct, quality, peak: d.peak, required: d.required, angleSource });
 
       if (tooFast && this.throttleCue(now, 1200)) {
         events.push({ type: "cue", message: "Slow down — control it", tone: "correct" });
@@ -454,7 +562,8 @@ export class RepCounter {
       this.gPhase = "up";
       this.reps += 1;
       this.lastRepTs = now;
-      events.push({ type: "rep", reps: this.reps, rom: 100, form: 100, stability: 100, confidence: 90, quality: "good" });
+      this.lastDecision = { accepted: true, reason: "generic", rom: 100, peak: 1, required: 0.35, confidence: 90, at: now };
+      events.push({ type: "rep", reps: this.reps, rom: 100, form: 100, stability: 100, confidence: 90, quality: "good", peak: 1, required: 0.35, angleSource: "2D" });
     }
     return events;
   }
@@ -486,6 +595,23 @@ export class RepCounter {
       color,
       orientation: this.orientation,
       repPhase: this.repPhaseNow(),
+      debug: this.debugInfo(),
+    };
+  }
+
+  private debugInfo(): RepDebugInfo {
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    return {
+      side: this.dbgSide,
+      joints: this.cfg.type === "rep" ? this.cfg.joint.join("→") : this.cfg.type,
+      angle: isNaN(this.smoothAngle) ? null : Math.round(this.smoothAngle),
+      angleSource: this.angleFrom3D ? "3D" : "2D",
+      progress: round2(this.progress),
+      peak: round2(this.peak),
+      requiredProgress: round2(this.dbgReqProgress),
+      turnaroundTol: this.dbgTurn,
+      wristVeto: this.dbgWristVeto,
+      lastDecision: this.lastDecision,
     };
   }
 

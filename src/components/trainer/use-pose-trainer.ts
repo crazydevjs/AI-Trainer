@@ -48,11 +48,31 @@ const INITIAL_COACH: CoachState = {
   confidence: 0,
   orientation: "unknown",
   repPhase: "idle",
+  debug: {
+    side: null,
+    joints: "—",
+    angle: null,
+    angleSource: "2D",
+    progress: 0,
+    peak: 0,
+    requiredProgress: 0,
+    turnaroundTol: 0.1,
+    wristVeto: false,
+    lastDecision: null,
+  },
 };
+
+/** Which detection pipeline is actually driving the current workout:
+ *  - "2D":     MoveNet — 2D keypoints for tracking + angle measurement.
+ *  - "3D":     BlazePose loaded, but no usable 3D landmarks for the athlete yet.
+ *  - "Hybrid": BlazePose — 2D keypoints track/lock the athlete, 3D world
+ *              landmarks measure the joint angles (depth-invariant). */
+export type Pipeline = "2D" | "3D" | "Hybrid";
 
 export interface Telemetry {
   fps: number;
   model: PoseModel;
+  pipeline: Pipeline;
   fallbackActive: boolean;
   confidence: number; // 0..100
   landmarks: number;
@@ -130,6 +150,7 @@ export function usePoseTrainer({
   const [telemetry, setTelemetry] = useState<Telemetry>({
     fps: 0,
     model: "2D",
+    pipeline: "2D",
     fallbackActive: false,
     confidence: 0,
     landmarks: 0,
@@ -246,13 +267,32 @@ export function usePoseTrainer({
 
           let formView: FormView | undefined;
           if (locked && runningRef.current) {
-            const evts = counter.update(locked.keypoints, now);
+            const evts = counter.update(locked.keypoints, now, locked.keypoints3D);
             for (const e of evts) {
               onEventRef.current?.(e);
               if (e.type === "rep")
-                logEvent({ t: Math.round(now), event: "rep", quality: e.quality, rom: e.rom, form: e.form, confidence: e.confidence });
+                logEvent({
+                  t: Math.round(now),
+                  event: "rep",
+                  quality: e.quality,
+                  rom: e.rom,
+                  form: e.form,
+                  confidence: e.confidence,
+                  peak: e.peak,
+                  required: e.required,
+                  angleSource: e.angleSource,
+                });
               else if (e.type === "badrep")
-                logEvent({ t: Math.round(now), event: "rep-rejected", reason: e.reason });
+                logEvent({
+                  t: Math.round(now),
+                  event: "rep-rejected",
+                  reason: e.reason,
+                  rom: e.rom,
+                  confidence: e.confidence,
+                  peak: e.peak,
+                  required: e.required,
+                  angleSource: e.angleSource,
+                });
             }
             const cs = counter.state();
             setState(cs);
@@ -280,11 +320,15 @@ export function usePoseTrainer({
                   100
               )
             : 0;
+          const has3D = !!(locked?.keypoints3D && locked.keypoints3D.length);
+          const pipeline: Pipeline =
+            modelRef.current === "2D" ? "2D" : has3D ? "Hybrid" : "3D";
           if (now - lastTelemetry.current > 200) {
             lastTelemetry.current = now;
             setTelemetry({
               fps: Math.round(fpsEma.current),
               model: modelRef.current,
+              pipeline,
               fallbackActive: downgraded.current,
               confidence: conf,
               landmarks: lmCount,
@@ -293,15 +337,28 @@ export function usePoseTrainer({
           }
           if (runningRef.current && now - lastSample.current > 1000) {
             lastSample.current = now;
+            const snap = counter.state();
+            const dbg = snap.debug;
             logEvent({
               t: Math.round(now),
               event: "sample",
               fps: Math.round(fpsEma.current),
               model: modelRef.current,
+              pipeline,
+              angle3D: counter.angleFrom3D,
               inferenceMs: Math.round(infEma.current),
               confidence: conf,
               landmarks: lmCount,
               reps: counter.reps,
+              // tuning telemetry (1 Hz): what the rep engine is seeing
+              orientation: snap.orientation,
+              side: dbg.side,
+              joints: dbg.joints,
+              angle: dbg.angle,
+              progress: dbg.progress,
+              peak: dbg.peak,
+              required: dbg.requiredProgress,
+              wristVeto: dbg.wristVeto,
             });
           }
         } catch {

@@ -18,7 +18,8 @@ import {
   VolumeX,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { usePoseTrainer } from "./use-pose-trainer";
+import { usePoseTrainer, type Pipeline } from "./use-pose-trainer";
+import { getCameraSetup } from "@/lib/pose/camera-setup";
 import type { CoachEvent } from "@/lib/pose/rep-counter";
 import {
   getVoiceStatus,
@@ -164,6 +165,7 @@ export function LiveSession({
   const [devHud] = useState(() => isDevUnlocked() && getHudEnabled());
   const fpsHist = useRef<number[]>([]);
   const infHist = useRef<number[]>([]);
+  const requiredView = getCameraSetup(exercise.poseKey).view;
   const [currentWeightKg, setCurrentWeightKg] = useState(startWeightKg);
   const [nextWeightKg, setNextWeightKg] = useState(startWeightKg);
   const bestWeightRef = useRef(history.bestWeightKg);
@@ -226,7 +228,6 @@ export function LiveSession({
     status,
     errorMsg,
     state,
-    model,
     telemetry,
     lockState,
     lockCenter,
@@ -600,16 +601,7 @@ export function LiveSession({
           </div>
           <ScoreChip label="Form" value={state.avgForm} />
           <ScoreChip label="ROM" value={state.avgRom} />
-          <div
-            className={`flex items-center rounded-2xl border px-3 py-2 text-center backdrop-blur ${
-              model === "3D"
-                ? "border-volt/50 bg-volt/10 text-volt"
-                : "border-white/15 bg-black/40 text-fog"
-            }`}
-            title={model === "3D" ? "BlazePose 3D (depth/occlusion)" : "MoveNet 2D (fast)"}
-          >
-            <span className="font-display text-sm font-bold">{model}</span>
-          </div>
+          <PipelineChip pipeline={telemetry.pipeline} />
         </div>
       </div>
 
@@ -623,7 +615,7 @@ export function LiveSession({
 
       {/* Developer telemetry HUD (dev mode only) */}
       {devHud && status === "ready" && (
-        <div className="absolute right-3 top-28 z-30 w-44 space-y-0.5 rounded-xl border border-volt/30 bg-black/75 p-3 font-mono text-[11px] text-fog backdrop-blur">
+        <div className="absolute right-3 top-28 z-30 w-56 space-y-0.5 rounded-xl border border-volt/30 bg-black/75 p-3 font-mono text-[11px] text-fog backdrop-blur">
           <p className="mb-1 font-bold text-volt">DEV HUD</p>
           <Row2 k="FPS" v={`${telemetry.fps}`} />
           <Sparkline data={fpsHist.current} max={60} color="#2bd4ff" refValue={30} />
@@ -634,12 +626,44 @@ export function LiveSession({
             color="#ffc24b"
             refValue={33}
           />
-          <Row2 k="engine" v={telemetry.model + (telemetry.fallbackActive ? " (fb)" : "")} />
-          <Row2 k="fallback" v={telemetry.fallbackActive ? "active" : "—"} />
-          <Row2 k="conf" v={`${telemetry.confidence}%`} />
-          <Row2 k="landmarks" v={`${telemetry.landmarks}`} />
-          <Row2 k="rep" v={repState} />
-          <Row2 k="exercise" v={exercise.slug} />
+          <Row2 k="model" v={telemetry.model === "3D" ? "BlazePose" : "MoveNet"} />
+          <Row2 k="pipeline" v={telemetry.pipeline} />
+          <Row2 k="fallback" v={telemetry.fallbackActive ? "3D→2D active" : "—"} />
+
+          <p className="mb-0.5 mt-2 font-bold text-volt">EXERCISE</p>
+          <Row2 k="slug" v={exercise.slug} />
+          <Row2 k="poseKey" v={exercise.poseKey ?? "—"} />
+          <Row2 k="view" v={`${state.orientation} (need ${requiredView})`} />
+
+          <p className="mb-0.5 mt-2 font-bold text-volt">REP ENGINE</p>
+          <Row2
+            k="joints"
+            v={`${state.debug.side ? state.debug.side[0].toUpperCase() : "?"} ${state.debug.joints}`}
+          />
+          <Row2
+            k="angle"
+            v={state.debug.angle != null ? `${state.debug.angle}° · ${state.debug.angleSource}` : "—"}
+          />
+          <Row2 k="progress" v={`${state.debug.progress} · pk ${state.debug.peak}`} />
+          <Row2 k="req / tol" v={`${state.debug.requiredProgress} / ${state.debug.turnaroundTol}`} />
+          <Row2 k="phase" v={repState} />
+          <Row2 k="rep conf" v={`${state.confidence}%`} />
+          <Row2 k="lm conf" v={`${telemetry.confidence}% · ${telemetry.landmarks} pts`} />
+          <Row2 k="wrist veto" v={state.debug.wristVeto ? "ACTIVE" : "—"} />
+          {state.debug.lastDecision && (
+            <p
+              className={`mt-1 rounded-md px-1.5 py-1 leading-tight ${
+                state.debug.lastDecision.accepted
+                  ? "bg-neon/10 text-neon"
+                  : "bg-ember/15 text-ember"
+              }`}
+            >
+              {state.debug.lastDecision.accepted ? "✓" : "✗"} {state.debug.lastDecision.reason}
+              <br />
+              pk {state.debug.lastDecision.peak} req {state.debug.lastDecision.required} · rom{" "}
+              {state.debug.lastDecision.rom} · conf {state.debug.lastDecision.confidence}%
+            </p>
+          )}
         </div>
       )}
 
@@ -1008,6 +1032,38 @@ function Row2({ k, v }: { k: string; v: string }) {
     <div className="flex justify-between gap-2">
       <span>{k}</span>
       <span className="text-chalk">{v}</span>
+    </div>
+  );
+}
+
+const PIPELINE_META: Record<Pipeline, { label: string; title: string; tone: string }> = {
+  "2D": {
+    label: "2D",
+    title: "2D Pose Detection — MoveNet. Fast, multi-person tracking; joint angles measured in the image plane.",
+    tone: "border-white/15 bg-black/40 text-fog",
+  },
+  "3D": {
+    label: "3D",
+    title: "3D Pose Detection — BlazePose loaded (waiting on 3D landmarks for the tracked athlete).",
+    tone: "border-volt/50 bg-volt/10 text-volt",
+  },
+  Hybrid: {
+    label: "HYB",
+    title:
+      "Hybrid Detection — BlazePose: 2D keypoints lock/track you while 3D world landmarks measure joint angles (depth-invariant, better for bench, press, rows & pulldowns from side/angled cameras).",
+    tone: "border-neon/50 bg-neon/10 text-neon",
+  },
+};
+
+function PipelineChip({ pipeline }: { pipeline: Pipeline }) {
+  const m = PIPELINE_META[pipeline];
+  return (
+    <div
+      className={`flex flex-col items-center rounded-2xl border px-3 py-2 text-center backdrop-blur ${m.tone}`}
+      title={m.title}
+    >
+      <span className="text-[9px] uppercase leading-none tracking-widest opacity-70">AI</span>
+      <span className="font-display text-sm font-bold leading-tight">{m.label}</span>
     </div>
   );
 }

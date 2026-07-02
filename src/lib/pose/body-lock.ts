@@ -12,6 +12,8 @@ import type { Keypoint } from "./angles";
 
 export interface Pose {
   keypoints: Keypoint[];
+  /** BlazePose world landmarks (metres) for depth-aware angle measurement. */
+  keypoints3D?: Keypoint[];
   score?: number;
   id?: number;
 }

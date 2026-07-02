@@ -5,11 +5,14 @@
 
 export type PoseModel = "2D" | "3D";
 
-// poseKeys (which already group families) that benefit from 3D:
+// poseKeys (which already group families) that benefit from 3D. For these the
+// limb often moves toward/away from the camera, so a 2D image-plane angle is
+// foreshortened; BlazePose world landmarks give a depth-invariant joint angle.
 //  bench-press  → bench, incline DB, flat DB, decline, close-grip
 //  row          → barbell/dumbbell/t-bar/seated-cable/machine/chest-supported
+//  pull-down    → lat pulldown (tracked from side/rear; machine blocks front)
 //  shoulder-press, rdl (hip hinge)
-const POSE_3D = new Set(["bench-press", "row", "shoulder-press", "rdl"]);
+const POSE_3D = new Set(["bench-press", "row", "shoulder-press", "rdl", "pull-down"]);
 
 export function modelFor(poseKey?: string | null): PoseModel {
   return poseKey && POSE_3D.has(poseKey) ? "3D" : "2D";

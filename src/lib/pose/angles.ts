@@ -3,6 +3,8 @@
 export interface Keypoint {
   x: number;
   y: number;
+  /** depth (metres, BlazePose world landmarks). Absent for 2D MoveNet. */
+  z?: number;
   score?: number;
   name?: string;
 }
@@ -25,6 +27,25 @@ export function angle(a: Keypoint, b: Keypoint, c: Keypoint): number {
   const dot = abx * cbx + aby * cby;
   const magAb = Math.hypot(abx, aby);
   const magCb = Math.hypot(cbx, cby);
+  if (magAb === 0 || magCb === 0) return 180;
+  let cos = dot / (magAb * magCb);
+  cos = Math.max(-1, Math.min(1, cos));
+  return (Math.acos(cos) * 180) / Math.PI;
+}
+
+/** Interior angle at B (A-B-C) using 3D world coordinates (degrees, 0-180).
+ *  Depth-invariant: unlike the 2D angle, foreshortening from a side/45° camera
+ *  (bench press, overhead press, rows) no longer distorts the joint angle. */
+export function angle3D(a: Keypoint, b: Keypoint, c: Keypoint): number {
+  const abx = a.x - b.x;
+  const aby = a.y - b.y;
+  const abz = (a.z ?? 0) - (b.z ?? 0);
+  const cbx = c.x - b.x;
+  const cby = c.y - b.y;
+  const cbz = (c.z ?? 0) - (b.z ?? 0);
+  const dot = abx * cbx + aby * cby + abz * cbz;
+  const magAb = Math.hypot(abx, aby, abz);
+  const magCb = Math.hypot(cbx, cby, cbz);
   if (magAb === 0 || magCb === 0) return 180;
   let cos = dot / (magAb * magCb);
   cos = Math.max(-1, Math.min(1, cos));

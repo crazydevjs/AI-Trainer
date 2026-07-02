@@ -23,6 +23,10 @@ export interface RepConfig {
   /** overhead presses: only treat as "worked" when the wrist is above the
    *  shoulder — prevents arms-at-sides (elbow straight) reading as a rep. */
   requireWristAboveShoulder?: boolean;
+  /** progress-reversal (0..1) required to confirm a bottom turnaround. Larger
+   *  values ignore the grind/wobble of heavy, slow reps so a single rep isn't
+   *  split into several or a pause misread as a turnaround. Default 0.1. */
+  turnaroundTol?: number;
 }
 
 export interface HoldConfig {
@@ -63,14 +67,28 @@ const pushupLike: RepConfig = {
   incompleteCue: "Go all the way down",
 };
 
+// Barbell/DB bench + incline press. Elbow flexion, measured in 3D so a side/45°
+// camera doesn't foreshorten the arm. Slightly forgiving turnaround for the
+// grind of a heavy press.
+const benchLike: RepConfig = {
+  type: "rep",
+  joint: ["shoulder", "elbow", "wrist"],
+  startAngle: 158, // arms extended (top)
+  activeAngle: 100, // elbow bent at the chest (bottom)
+  idealAngle: 82,
+  incompleteCue: "Lower the bar to your chest",
+  turnaroundTol: 0.14,
+};
+
 const pressLike: RepConfig = {
   type: "rep",
   joint: ["shoulder", "elbow", "wrist"],
   startAngle: 90,
-  activeAngle: 150, // forgiving lockout for heavy dumbbells / limited mobility
-  idealAngle: 168,
+  activeAngle: 140, // forgiving lockout for heavy sets / limited mobility
+  idealAngle: 165,
   incompleteCue: "Press a little higher",
   requireWristAboveShoulder: true,
+  turnaroundTol: 0.16, // tolerate the grind + controlled pause of a heavy press
 };
 
 // Seated knee extension: leg goes from bent (~90) to straight (~165).
@@ -102,6 +120,20 @@ const pullupLike: RepConfig = {
   incompleteCue: "Pull all the way up",
 };
 
+// Lat pulldown. Elbow flexion from arms-extended-overhead to bar-at-chest.
+// Measured in 3D so it counts from side and rear angles (front is blocked by
+// the machine). This replaces the old fallback that treated it as a generic
+// hip-drop movement, which never counted pulldown reps.
+const pulldownLike: RepConfig = {
+  type: "rep",
+  joint: ["shoulder", "elbow", "wrist"],
+  startAngle: 165, // arms extended overhead
+  activeAngle: 85, // elbows driven down, bar at upper chest
+  idealAngle: 62,
+  incompleteCue: "Pull the bar all the way down",
+  turnaroundTol: 0.14,
+};
+
 const rowLike: RepConfig = {
   type: "rep",
   joint: ["shoulder", "elbow", "wrist"],
@@ -109,6 +141,7 @@ const rowLike: RepConfig = {
   activeAngle: 80,
   idealAngle: 60,
   incompleteCue: "Pull it to your body",
+  turnaroundTol: 0.14,
 };
 
 const hingeLike: RepConfig = {
@@ -170,9 +203,10 @@ const CONFIGS: Record<string, ExerciseConfig> = {
   "front-squat": squatLike,
   lunge: squatLike,
   "push-up": pushupLike,
-  "bench-press": pushupLike,
+  "bench-press": benchLike,
   "shoulder-press": pressLike,
   "pull-up": pullupLike,
+  "pull-down": pulldownLike,
   curl: curlLike,
   "hammer-curl": curlLike,
   row: rowLike,

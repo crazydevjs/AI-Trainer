@@ -1,0 +1,1346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>FORGE — AI Trainer · Technical Documentation</title>
+<style>
+  :root { --ink:#1a1a1f; --muted:#555; --accent:#c0392b; --accent2:#2b6cb0; --line:#ddd; --bg:#fff; --code:#f4f4f7; }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { font-family: "Segoe UI", Helvetica, Arial, sans-serif; color: var(--ink); line-height: 1.55; margin: 0; font-size: 12.5px; }
+  .page { max-width: 880px; margin: 0 auto; padding: 28px 40px; }
+  h1 { font-size: 26px; color: var(--accent); border-bottom: 3px solid var(--accent); padding-bottom: 8px; margin-top: 0; page-break-before: always; }
+  h2 { font-size: 19px; color: var(--ink); border-bottom: 1px solid var(--line); padding-bottom: 4px; margin-top: 28px; }
+  h3 { font-size: 15.5px; color: var(--accent2); margin-top: 20px; }
+  h4 { font-size: 13.5px; margin-top: 16px; }
+  p, li { font-size: 12.5px; }
+  code { background: var(--code); padding: 1px 5px; border-radius: 4px; font-family: "Cascadia Code", Consolas, monospace; font-size: 11.5px; }
+  pre { background: var(--code); border: 1px solid var(--line); border-left: 3px solid var(--accent2); border-radius: 6px; padding: 12px 14px; overflow-x: auto; font-family: "Cascadia Code", Consolas, monospace; font-size: 11px; line-height: 1.4; white-space: pre; }
+  pre.diagram { border-left-color: var(--accent); background: #fbfbfd; line-height: 1.25; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 11.5px; }
+  th, td { border: 1px solid var(--line); padding: 6px 9px; text-align: left; vertical-align: top; }
+  th { background: #f0f0f4; }
+  a { color: var(--accent2); text-decoration: none; }
+  .muted { color: var(--muted); }
+  .tag { display:inline-block; background:#eef; color:#334; border:1px solid #ccd; border-radius:4px; padding:0 6px; font-size:10.5px; margin:1px; }
+  .formula { background:#fffaf0; border:1px solid #f0e0c0; border-radius:6px; padding:10px 14px; font-family:"Cambria Math",Georgia,serif; font-size:13px; margin:10px 0; }
+  .note { background:#eef7ff; border-left:3px solid var(--accent2); padding:8px 12px; border-radius:4px; margin:10px 0; }
+  .warn { background:#fff5f5; border-left:3px solid var(--accent); padding:8px 12px; border-radius:4px; margin:10px 0; }
+  .cover { text-align:center; padding-top: 160px; height: 100vh; }
+  .cover h1 { border:0; font-size:46px; page-break-before:avoid; color:var(--accent); }
+  .cover .sub { font-size:18px; color:var(--muted); margin-top: 6px; }
+  .cover .meta { margin-top: 60px; font-size: 13px; color:#333; }
+  .toc a { display:block; padding:3px 0; color:var(--ink); }
+  .toc .c { font-weight:600; color:var(--accent); }
+  .qa { margin: 10px 0; }
+  .qa .q { font-weight:600; }
+  .qa .a { margin: 2px 0 0 0; }
+  ol.qlist > li { margin-bottom: 9px; }
+  @page { size: A4; margin: 16mm 14mm; }
+</style>
+</head>
+<body>
+
+<!-- ===================== COVER ===================== -->
+<div class="page cover">
+  <h1>🔥 FORGE</h1>
+  <div class="sub">AI Fitness Trainer — Complete Technical Documentation</div>
+  <div class="sub" style="font-size:14px;margin-top:18px;">Real-time pose detection · automatic rep counting · live form coaching</div>
+  <div class="meta">
+    A software-architecture &amp; AI-engineering handbook<br/>
+    Frontend (Next.js) · On-device AI (TensorFlow.js) · PostgreSQL<br/>
+    <br/>Version: forge-ai-1.1 &nbsp;|&nbsp; Generated for the project creator
+  </div>
+</div>
+
+<!-- ===================== TOC ===================== -->
+<div class="page">
+<h1 style="page-break-before:avoid;">Table of Contents</h1>
+<div class="toc">
+  <a class="c" href="#ch1">1. Project Overview</a>
+  <a class="c" href="#ch2">2. Overall System Architecture</a>
+  <a class="c" href="#ch3">3. Folder Structure</a>
+  <a class="c" href="#ch4">4. Frontend</a>
+  <a class="c" href="#ch5">5. Backend</a>
+  <a class="c" href="#ch6">6. AI Pipeline (the big chapter)</a>
+  <a class="c" href="#ch7">7. Pose Detection &amp; Landmark Map</a>
+  <a class="c" href="#ch8">8. BlazePose 3D</a>
+  <a class="c" href="#ch9">9. One-Euro Filter</a>
+  <a class="c" href="#ch10">10. Rep Counting Algorithm</a>
+  <a class="c" href="#ch11">11. Form Analysis</a>
+  <a class="c" href="#ch12">12. Exercise Recognition</a>
+  <a class="c" href="#ch13">13. Camera Logic</a>
+  <a class="c" href="#ch14">14. Computer Vision Foundations</a>
+  <a class="c" href="#ch15">15. Algorithms Used (catalog)</a>
+  <a class="c" href="#ch16">16. AI Models</a>
+  <a class="c" href="#ch17">17. Performance Optimization</a>
+  <a class="c" href="#ch18">18. Debug System (Developer Mode)</a>
+  <a class="c" href="#ch19">19. Security &amp; Privacy</a>
+  <a class="c" href="#ch20">20. Deployment</a>
+  <a class="c" href="#ch21">21. 100 Interview Questions &amp; Answers</a>
+  <a class="c" href="#ch22">22. 100 Viva Questions &amp; Answers</a>
+  <a class="c" href="#ch23">23. Future Improvements</a>
+  <a class="c" href="#ch24">24. Final Summary</a>
+</div>
+</div>
+
+<!-- ===================== CH1 ===================== -->
+<div class="page">
+<h1 id="ch1">1. Project Overview</h1>
+
+<h3>What is AI-Trainer (FORGE)?</h3>
+<p>FORGE is a web-based <b>AI personal fitness trainer</b>. The user opens their phone or laptop camera, picks an exercise (e.g. squat), and the app watches them through the camera in real time. It detects the body's joints, counts repetitions automatically, scores the quality of each rep, and speaks coaching cues out loud — exactly like a human trainer standing next to you. It also records the workout, tracks weights and personal records, and saves history.</p>
+
+<h3>What problem does it solve?</h3>
+<ul>
+  <li><b>Cost &amp; access:</b> Personal trainers are expensive and not always available. FORGE gives 24/7 AI coaching for the price of an app.</li>
+  <li><b>Bad form → injury:</b> Most people training alone don't know if their form is correct. FORGE detects mistakes (shallow depth, knees caving, rounded back) and corrects them live.</li>
+  <li><b>Motivation &amp; tracking:</b> It counts reps so you don't have to, tracks progressive overload, detects PRs, and keeps you engaged with voice + a session report.</li>
+</ul>
+
+<h3>Why build it?</h3>
+<p>To combine three things that normally require a coach + a notebook + a video review: (1) real-time technique correction, (2) automatic logging, and (3) progress analytics — all running <b>on the user's own device</b> so it is cheap to operate and private by design.</p>
+
+<h3>Target audience</h3>
+<ul>
+  <li>Home / gym lifters who train alone and want form feedback.</li>
+  <li>Beginners who don't know correct technique.</li>
+  <li>Intermediate/advanced lifters who want automatic rep + volume + PR tracking.</li>
+  <li>Initial market: India (price-sensitive, mobile-first), then global.</li>
+</ul>
+
+<h3>Real-world use cases</h3>
+<ul>
+  <li>Doing squats at home with the phone on a tripod — the AI counts and says "go lower".</li>
+  <li>Tracking bench-press weight per set and getting a "new personal record" announcement.</li>
+  <li>Recording a clean set to share on Instagram/WhatsApp with burned-in rep overlay.</li>
+  <li>Reviewing a session report: form 88%, depth 90%, stability 75%, "your depth dropped near the end".</li>
+</ul>
+
+<h3>Future roadmap</h3>
+<p>AI workout recommendations, personalized plans, fatigue/injury-risk detection, LLM-powered conversational coaching, wearable/smartwatch integration, and a native Android app (true gallery save + on-device voice in recordings). See Chapter 23.</p>
+</div>
+
+<!-- ===================== CH2 ===================== -->
+<div class="page">
+<h1 id="ch2">2. Overall System Architecture</h1>
+<p>FORGE is a <b>client-heavy</b> application: the expensive AI computation (pose detection, rep logic, voice) runs <b>in the browser on the user's device</b>. The server only handles auth, saving sessions, and serving data. This is the single most important architectural decision — it gives ~90% gross margins and strong privacy.</p>
+
+<h3>End-to-end pipeline</h3>
+<pre class="diagram">
+        ┌─────────┐
+        │  USER   │  picks exercise, sets, reps, weight, rest
+        └────┬────┘
+             ▼
+        ┌─────────┐   getUserMedia (front/rear camera)
+        │ CAMERA  │   &lt;video&gt; element, mirrored for front cam
+        └────┬────┘
+             ▼
+   ┌───────────────────┐   TensorFlow.js (WebGL) — ON DEVICE
+   │  POSE DETECTION   │   MoveNet 2D (default) / BlazePose 3D (selective)
+   └────────┬──────────┘   → 17 (or 33) landmarks {x,y,score}
+             ▼
+   ┌───────────────────┐   One-Euro filter per joint + confidence gate
+   │  AI PROCESSING    │   Body-Lock (track ONE person) + angle math
+   └────────┬──────────┘
+             ▼
+   ┌───────────────────┐   bottom-turnaround state machine
+   │   REP COUNTING    │   counts only valid-depth reps in real time
+   └────────┬──────────┘
+             ▼
+   ┌───────────────────┐   view-aware tolerance-banded checks
+   │  FORM ANALYSIS    │   → voice + colored skeleton + cues
+   └────────┬──────────┘
+             ▼
+   ┌───────────────────┐   per-set scores, volume, PR, fatigue
+   │ WORKOUT ANALYTICS │   rest-screen debrief + session report
+   └────────┬──────────┘
+             ▼
+   ┌───────────────────┐   POST /api/sessions (Next.js route handler)
+   │     DATABASE      │   PostgreSQL via Prisma (Neon)
+   └────────┬──────────┘
+             ▼
+   ┌───────────────────┐   reads aggregated data
+   │    DASHBOARD      │   streak, calories, weekly chart, history
+   └───────────────────┘
+</pre>
+
+<h3>Why each connection exists</h3>
+<table>
+  <tr><th>Edge</th><th>What flows</th><th>Why</th></tr>
+  <tr><td>User → Camera</td><td>A user gesture ("Start") opens the camera and unlocks audio</td><td>Browsers require a gesture for camera + speech (autoplay policy)</td></tr>
+  <tr><td>Camera → Pose</td><td>Raw video frames</td><td>The model needs pixels to estimate joint positions</td></tr>
+  <tr><td>Pose → AI Processing</td><td>Landmarks (x,y,score)</td><td>Smoothing + lock + angles turn noisy points into stable signals</td></tr>
+  <tr><td>AI → Rep Counting</td><td>Smoothed joint angles of the locked person</td><td>Reps are derived from one joint angle crossing thresholds</td></tr>
+  <tr><td>Rep → Form</td><td>Per-frame pose + per-rep aggregates</td><td>Form must be judged while the rep happens</td></tr>
+  <tr><td>Form → Analytics</td><td>Scores, faults, weights</td><td>To produce the rest debrief + final report</td></tr>
+  <tr><td>Analytics → DB</td><td>Session + per-set rows (JSON over HTTPS)</td><td>Persistence enables history, PRs, progressive overload</td></tr>
+  <tr><td>DB → Dashboard</td><td>Aggregated queries</td><td>Show streak, volume, charts</td></tr>
+</table>
+
+<h3>Three planes</h3>
+<table>
+  <tr><th>Plane</th><th>Runs where</th><th>Tech</th></tr>
+  <tr><td>Presentation + AI</td><td>Browser (client)</td><td>Next.js (React 19), TensorFlow.js, Web Speech, Web Audio, MediaRecorder</td></tr>
+  <tr><td>Application/API</td><td>Server (Vercel/Render)</td><td>Next.js Route Handlers + Server Components, JWT auth</td></tr>
+  <tr><td>Data</td><td>Managed cloud</td><td>PostgreSQL (Neon) via Prisma ORM</td></tr>
+</table>
+</div>
+
+<!-- ===================== CH3 ===================== -->
+<div class="page">
+<h1 id="ch3">3. Folder Structure</h1>
+<p>The project is a single Next.js App-Router codebase. Key folders:</p>
+<pre class="diagram">
+AI-Trainer/
+├─ prisma/
+│  ├─ schema.prisma           # DB models (User, Profile, Exercise, WorkoutSession…)
+│  ├─ seed.ts                 # loads exercises + equipment + achievements
+│  └─ data/
+│     ├─ exercises.ts         # 120 exercises (muscles, cues, poseKey, AI flags)
+│     └─ equipment.ts         # 34 equipment/machine catalog entries
+├─ src/
+│  ├─ app/                    # routes (App Router)
+│  │  ├─ (app)/               # authenticated shell (sidebar layout)
+│  │  │  ├─ dashboard/        # command-center dashboard
+│  │  │  ├─ exercises/        # library list + [slug] detail
+│  │  │  ├─ workouts/         # custom workout builder + saved
+│  │  │  ├─ progress/ profile/ settings/ admin/
+│  │  │  └─ settings/developer/         # HIDDEN dev tools
+│  │  │     └─ history/        # HIDDEN session-history dashboard
+│  │  ├─ train/[slug]/        # FULL-SCREEN AI trainer (no chrome)
+│  │  ├─ api/                 # route handlers (auth, sessions, workouts, onboarding)
+│  │  ├─ login/ signup/ onboarding/ …
+│  │  ├─ layout.tsx           # root layout (fonts, Toaster, SW cleanup)
+│  │  └─ globals.css          # design system (Tailwind v4 theme)
+│  ├─ components/
+│  │  ├─ trainer/             # the AI trainer feature (see below)
+│  │  ├─ ui/                  # button, input, switch, progress-ring…
+│  │  ├─ app/ auth/ dashboard/ exercises/ workouts/ onboarding/
+│  ├─ lib/
+│  │  ├─ pose/                # ALL the AI logic (see below)
+│  │  ├─ auth.ts jwt.ts prisma.ts validators.ts fitness.ts
+│  │  ├─ camera.ts weight.ts coach.ts voice.ts dev.ts dev-history.ts
+│  └─ proxy.ts                # route protection (Next 16 middleware)
+└─ next.config.ts             # mediapipe alias, webpack/turbopack
+</pre>
+
+<h3>The AI core — <code>src/lib/pose/</code></h3>
+<table>
+<tr><th>File</th><th>Responsibility</th></tr>
+<tr><td><code>angles.ts</code></td><td>Geometry: keypoint map, joint angle, angle-from-vertical, confidence/best-side helpers</td></tr>
+<tr><td><code>one-euro.ts</code></td><td>One-Euro adaptive low-pass filter + <code>KeypointSmoother</code> (per-joint, occlusion hold)</td></tr>
+<tr><td><code>exercises.ts</code></td><td>Per-exercise rep config (joint triple, start/active/ideal angles, cues)</td></tr>
+<tr><td><code>form-rules.ts</code></td><td>View-aware, tolerance-banded form checks + orientation detector</td></tr>
+<tr><td><code>rep-counter.ts</code></td><td>The brain: turnaround state machine, ROM/form/stability scoring, attempts log</td></tr>
+<tr><td><code>set-analysis.ts</code></td><td>Per-set debrief (mistakes, suggestions, fatigue, comparison)</td></tr>
+<tr><td><code>body-lock.ts</code></td><td>Lock onto one person; re-identify across frames (anti person-switch)</td></tr>
+<tr><td><code>camera-setup.ts</code></td><td>Per-exercise camera recommendations + required joints</td></tr>
+<tr><td><code>model-select.ts</code></td><td>Hybrid 2D/3D choice (exercise × device tier × override)</td></tr>
+<tr><td><code>device-tier.ts</code></td><td>Low/mid/high device classification</td></tr>
+<tr><td><code>smoothing-config.ts</code></td><td>Tunable One-Euro params (dev settings)</td></tr>
+</table>
+
+<h3>The trainer UI — <code>src/components/trainer/</code></h3>
+<table>
+<tr><td><code>trainer-experience.tsx</code></td><td>Phase machine: setup → camera guide → live → report</td></tr>
+<tr><td><code>use-pose-trainer.ts</code></td><td>The live hook: loads model, runs the rAF loop, smoothing, lock, draw, telemetry</td></tr>
+<tr><td><code>use-camera-check.ts</code></td><td>Camera-guide validation hook (visibility/angle/lighting/confidence)</td></tr>
+<tr><td><code>camera-guide.tsx</code></td><td>Pre-workout camera setup + auto-start countdown</td></tr>
+<tr><td><code>live-session.tsx</code></td><td>The full-screen HUD: counter, cues, controls, rest, recording, dev HUD</td></tr>
+<tr><td><code>rest-screen.tsx</code></td><td>Between-sets debrief + next-set weight selector</td></tr>
+<tr><td><code>session-report.tsx</code></td><td>Final scores, video, PR, save + export</td></tr>
+<tr><td><code>use-workout-recorder.ts</code></td><td>Composite-canvas recording (MediaRecorder)</td></tr>
+</table>
+
+<h3>How files communicate</h3>
+<pre class="diagram">
+train/[slug]/page.tsx (server: fetch exercise + history)
+        │ props
+        ▼
+TrainerExperience  ──phase──►  CameraGuide ──uses──► useCameraCheck
+        │
+        ├─ active ─► LiveSession ──uses──► usePoseTrainer ──uses──► RepCounter
+        │                │                          │                  │
+        │                │                          ├─ BodyLock        ├─ form-rules
+        │                │                          ├─ KeypointSmoother├─ angles
+        │                │                          └─ model-select/device-tier
+        │                ├─ Coach (voice) ─► voice.ts (Web Speech / beep)
+        │                ├─ useWorkoutRecorder (canvas → MediaRecorder)
+        │                └─ analyzeSet ─► RestScreen
+        └─ report ─► SessionReport ─► POST /api/sessions ─► Prisma ─► PostgreSQL
+</pre>
+</div>
+
+<!-- ===================== CH4 ===================== -->
+<div class="page">
+<h1 id="ch4">4. Frontend</h1>
+
+<h3>Framework — Next.js 16 + React 19 + TypeScript</h3>
+<p><b>What it is:</b> Next.js is a React framework that gives routing, server rendering, and an API layer in one project. React builds the UI from reusable components. TypeScript adds types so bugs are caught before running.</p>
+<table>
+<tr><th>Choice</th><th>Why chosen</th><th>Alternatives &amp; trade-off</th></tr>
+<tr><td>Next.js (App Router)</td><td>One codebase for UI + API + auth; server components keep secrets server-side; fast routing; great deploy story</td><td>Plain React + Vite (no backend), Remix (smaller ecosystem), Angular (heavier)</td></tr>
+<tr><td>React 19</td><td>Component model fits a stateful camera UI; huge ecosystem (TF.js, Framer Motion)</td><td>Vue/Svelte — fine, but less AI/ML web tooling</td></tr>
+<tr><td>TypeScript</td><td>Pose data is shaped data ({x,y,score}); types prevent whole classes of bugs</td><td>Plain JS — faster to write, riskier</td></tr>
+<tr><td>Tailwind CSS v4</td><td>Fast, consistent design system; custom dark-luxury theme in <code>globals.css</code></td><td>CSS Modules, styled-components — more boilerplate</td></tr>
+<tr><td>Framer Motion</td><td>Premium animations (counters, transitions) with little code</td><td>CSS animations — less control</td></tr>
+<tr><td>Recharts</td><td>Declarative charts for progress/dashboard</td><td>Chart.js, D3 (D3 = more power, more code)</td></tr>
+</table>
+
+<h3>Routing</h3>
+<p>File-based: a folder under <code>src/app</code> = a URL. Two groups:</p>
+<ul>
+  <li><code>(app)/</code> — a <b>route group</b> (parentheses = not in the URL). All pages here share the authenticated sidebar layout: dashboard, exercises, workouts, progress, profile, settings, admin.</li>
+  <li><code>train/[slug]/</code> — the <b>full-screen trainer</b>, deliberately <i>outside</i> the app shell so there is no sidebar/chrome — only camera + overlays (a hard requirement of the spec). <code>[slug]</code> is a dynamic segment, e.g. <code>/train/barbell-squat</code>.</li>
+</ul>
+<p>Route protection lives in <code>src/proxy.ts</code> (Next 16's middleware equivalent): it checks the JWT cookie and redirects unauthenticated users to <code>/login</code> before any protected page renders.</p>
+
+<h3>Server vs Client Components</h3>
+<p>By default Next renders components <b>on the server</b> (fast, secure, no JS shipped). Components that need browser APIs or interactivity opt in with <code>"use client"</code>. Example: <code>train/[slug]/page.tsx</code> is a <i>server</i> component that fetches the exercise + history from the DB, then passes them as props to <code>&lt;TrainerExperience&gt;</code>, a <i>client</i> component that runs the camera/AI.</p>
+
+<h3>Components</h3>
+<p>Organized by feature in <code>src/components/</code> (trainer, ui, dashboard, exercises, workouts, auth, onboarding). The <code>ui/</code> folder holds primitives (Button with <code>asChild</code> Slot pattern, Input, Switch, ProgressRing) reused everywhere for consistency.</p>
+
+<h3>State management</h3>
+<p>Deliberately <b>no Redux/Zustand</b>. State is local and layered:</p>
+<ul>
+  <li><b>React state/refs</b> inside the trainer hook for per-frame data (refs avoid re-rendering 30×/sec — critical for performance).</li>
+  <li><b>Server is the source of truth</b> for persistent data; pages fetch fresh.</li>
+  <li><b>localStorage</b> for device-local preferences and dev telemetry (smoothing params, engine override, dev session history).</li>
+</ul>
+<div class="note"><b>Why refs, not state, in the loop:</b> updating React state 30–60 times a second would re-render the whole tree and tank FPS. The AI loop writes to <code>useRef</code> values and draws to a canvas directly; only user-visible numbers (rep count, cue) are pushed to state, and the dev HUD is throttled to every 200 ms.</div>
+
+<h3>Camera integration</h3>
+<p><code>navigator.mediaDevices.getUserMedia()</code> opens the camera into a hidden <code>&lt;video&gt;</code> element. A <code>&lt;canvas&gt;</code> sits on top to draw the skeleton + overlays. Front camera is <b>mirrored</b> (CSS + coordinate flip) so it feels like a mirror; rear camera is not. <code>facingMode</code> toggles front/rear (Chapter 13).</p>
+
+<h3>UI flow</h3>
+<pre class="diagram">
+Login → Onboarding (goals, level, equipment) → Dashboard
+   └─► pick Exercise → /train/[slug]
+          Setup (sets/reps/weight/rest/mode) → Camera Guide (auto-start)
+              → Live Session (reps + form + voice) ⇄ Rest Screen (debrief)
+                  → Session Report (scores, video, PR) → save → Dashboard
+</pre>
+
+<h3>Performance optimization (frontend)</h3>
+<ul>
+  <li>Canvas drawing instead of DOM for the skeleton (GPU-friendly, no layout thrash).</li>
+  <li>Refs + throttled HUD to avoid render storms.</li>
+  <li>Model loaded once and reused; WebGL backend for GPU inference.</li>
+  <li>Dynamic import of the heavy TF.js trainer so the rest of the app stays light.</li>
+  <li>A <code>ServiceWorkerCleanup</code> component prevents stale cached bundles (a real bug we hit).</li>
+</ul>
+</div>
+
+<!-- ===================== CH5 ===================== -->
+<div class="page">
+<h1 id="ch5">5. Backend</h1>
+
+<h3>API architecture</h3>
+<p>The backend is a set of <b>Route Handlers</b> under <code>src/app/api/</code> — small server functions that respond to HTTP requests. They validate input with <b>zod</b>, talk to the DB through <b>Prisma</b>, and return JSON. There's no separate server process; Next.js runs the API and the UI together.</p>
+
+<table>
+<tr><th>Endpoint</th><th>Method</th><th>Purpose</th></tr>
+<tr><td><code>/api/auth/signup</code></td><td>POST</td><td>Create user (bcrypt-hash password), issue JWT cookie</td></tr>
+<tr><td><code>/api/auth/login</code></td><td>POST</td><td>Verify credentials, set HTTP-only JWT cookie</td></tr>
+<tr><td><code>/api/auth/logout</code></td><td>POST</td><td>Clear the auth cookie</td></tr>
+<tr><td><code>/api/auth/google</code></td><td>POST</td><td>Verify Google OAuth token, find/create user, issue JWT</td></tr>
+<tr><td><code>/api/auth/me</code></td><td>GET</td><td>Return the current user from the cookie</td></tr>
+<tr><td><code>/api/onboarding</code></td><td>POST</td><td>Save profile (goals, level, equipment, metrics)</td></tr>
+<tr><td><code>/api/sessions</code></td><td>POST/GET</td><td>Save a finished single-exercise AI session (sets, reps, scores); list history</td></tr>
+<tr><td><code>/api/workout-logs</code></td><td>POST</td><td>Save a complete gym session (title + many exercises + per-set weight×reps); detects PRs, awards XP, generates the AI summary</td></tr>
+<tr><td><code>/api/workouts</code></td><td>POST/GET</td><td>Create/list custom workouts from the builder</td></tr>
+<tr><td><code>/api/exercises</code></td><td>GET</td><td>Query the exercise library (filters)</td></tr>
+</table>
+
+<h3>Authentication</h3>
+<p>Custom JWT auth (no third-party auth service):</p>
+<ul>
+  <li><b>Signup/Login:</b> password hashed with <b>bcryptjs</b> (slow on purpose, salted) and stored — never the plaintext.</li>
+  <li><b>Token:</b> a signed <b>JWT</b> (via <code>jose</code>) put in an <b>HTTP-only, Secure, SameSite cookie</b> — JavaScript can't read it, so XSS can't steal it.</li>
+  <li><b>Google OAuth:</b> <code>google-auth-library</code> verifies the Google ID token server-side, then we issue our own JWT.</li>
+  <li><b>Protection:</b> <code>src/proxy.ts</code> guards every <code>(app)</code> and <code>train</code> route — mandatory login, as required.</li>
+</ul>
+<table>
+<tr><th>Choice</th><th>Why</th><th>Alternative</th></tr>
+<tr><td>Custom JWT</td><td>Full control, no per-MAU cost, simple</td><td>Auth0/Clerk (faster but paid + lock-in), NextAuth (heavier)</td></tr>
+<tr><td>jose</td><td>Modern, works in Edge runtime</td><td>jsonwebtoken (Node-only)</td></tr>
+<tr><td>HTTP-only cookie</td><td>XSS-safe token storage</td><td>localStorage token (XSS-vulnerable)</td></tr>
+</table>
+
+<h3>Database</h3>
+<p><b>PostgreSQL</b> (hosted on <b>Neon</b>, serverless, pooled connection) accessed via the <b>Prisma</b> ORM. Prisma gives a typed schema and migrations; you write <code>prisma.user.findUnique(...)</code> instead of raw SQL, and the types flow into the app.</p>
+<p>Core models (in <code>prisma/schema.prisma</code>): <code>User</code>, <code>Profile</code>, <code>Exercise</code>, <code>Equipment</code>, <code>WorkoutLog</code> → <code>WorkoutSession</code> → <code>SessionSet</code>, <code>CustomWorkout</code>, <code>PersonalRecord</code>, <code>Achievement</code>. A <code>WorkoutLog</code> is a complete titled gym session (Push Day…) with duration, total sets/reps/volume and PR count; each child <code>WorkoutSession</code> is one exercise inside it, and each <code>SessionSet</code> stores one set's reps, weight, and (when AI-tracked) form/ROM scores — so history, dashboard and progress charts can aggregate at any level. Legacy single-exercise AI sessions are <code>WorkoutSession</code> rows with a null <code>workoutLogId</code>.</p>
+<table>
+<tr><th>Choice</th><th>Why</th><th>Alternative</th></tr>
+<tr><td>PostgreSQL</td><td>Relational data (users→sessions→sets), reliable, free tier</td><td>MongoDB (less fit for relations), MySQL (fine)</td></tr>
+<tr><td>Neon</td><td>Serverless, scales to zero, pooled — cheap for a new app</td><td>Supabase, Railway, RDS</td></tr>
+<tr><td>Prisma</td><td>Type-safe queries, migrations, great DX</td><td>Drizzle (lighter), raw SQL (error-prone)</td></tr>
+</table>
+
+<h3>Storage</h3>
+<p>Workout <b>videos stay on the device</b> (recorded via MediaRecorder, saved via download / Web Share) — no media upload cost or storage liability. Only structured session data goes to PostgreSQL. Dev telemetry lives in localStorage.</p>
+
+<h3>Logging &amp; error handling</h3>
+<ul>
+  <li>API handlers wrap logic in try/catch and return proper HTTP codes (400 validation, 401 auth, 500 server) with JSON messages.</li>
+  <li>zod validates every request body; invalid input is rejected before touching the DB.</li>
+  <li>Client shows user-friendly toasts; the AI loop has its own error states (no camera, model load failed, tracking lost).</li>
+  <li>Dev Mode adds a structured in-memory debug log (capped at 8000 events) exportable as JSON/CSV.</li>
+</ul>
+
+<h3>Workout Session System (full gym sessions)</h3>
+<p>Beyond the single-exercise AI trainer (<code>/train/[slug]</code>), the <b>Workout Session System</b> (<code>/workout</code>) turns the app into a complete training companion. Flow: <b>Plan → Live → Summary → History</b>.</p>
+<ul>
+  <li><b>Plan</b> (<code>components/workout-session/planner.tsx</code>): title (e.g. “Push Day”), optional description, and any number of exercises, each with per-set <b>weight × reps</b>. Everything stays editable mid-workout.</li>
+  <li><b>Live</b> (<code>live.tsx</code>): elapsed clock, live volume/sets/reps, rest timer, set completion with post-hoc rep adjustment. Exercises with a <code>poseKey</code> can be tracked by the embedded <b>AI coach panel</b> (<code>ai-set-tracker.tsx</code>, same pose pipeline as Chapter 6): it counts reps and auto-completes the set at target. <b>AI is never mandatory</b> — manual logging always works, so a failed camera/model can't block the workout.</li>
+  <li><b>Persistence:</b> the in-progress draft autosaves to <code>localStorage</code> (<code>lib/workout-session.ts</code>) on every change; closing the app and reopening <code>/workout</code> resumes exactly where the user left off. Saving also survives request failures (the draft is only cleared after a 200).</li>
+  <li><b>Finish</b> (<code>POST /api/workout-logs</code>): persists the <code>WorkoutLog</code> tree, detects <b>PRs</b> against <code>PersonalRecord</code> (upserting new bests), awards XP (per rep/set + a PR bonus) and streaks, and generates the deterministic <b>AI coach summary</b> (<code>buildCoachSummary</code> — completion, volume, pace, PR and AI-verification observations).</li>
+  <li><b>Summary + share card</b> (<code>summary.tsx</code>): stats, PR badges, the coach observation, and a 1080×1920 <b>Instagram-story share card</b> drawn on a canvas (title, date, duration, volume, sets, reps, best lift, PR badge, quote, branding) shared via the Web Share API or downloaded as PNG.</li>
+  <li><b>History</b> (<code>/profile/history</code>): the training log — every session with date, duration, volume, set count and exercise chips; tap through to the full per-set breakdown (<code>/profile/history/[id]</code>).</li>
+</ul>
+
+<h3>Deployment</h3>
+<p>Hosted on <b>Render</b> (and Vercel-compatible). Code on GitHub; push to <code>main</code> auto-deploys. Build = <code>prisma generate</code> + <code>next build</code>. Secrets (DATABASE_URL, JWT secret, Google client id) are environment variables, never committed. See Chapter 20.</p>
+</div>
+
+<!-- ===================== CH6 ===================== -->
+<div class="page">
+<h1 id="ch6">6. AI Pipeline (the big chapter)</h1>
+<p>This chapter follows a single video frame from the camera all the way to a counted rep and a spoken cue. The whole pipeline runs <b>on the user's device, ~30 times a second</b>, inside the browser. Most of it lives in <code>use-pose-trainer.ts</code> (the loop) and <code>src/lib/pose/</code> (the math).</p>
+
+<pre class="diagram">
+ ┌─ CAMERA ────────── getUserMedia → &lt;video&gt; (front mirrored / rear not)
+ │
+ ▼
+ ┌─ FRAME CAPTURE ─── requestAnimationFrame loop grabs the current video frame
+ │                     (the browser keeps &lt;video&gt; at the live frame; we read it)
+ ▼
+ ┌─ PRE-PROCESSING ── model resizes/normalizes pixels internally to its input
+ │                     (MoveNet 192² / 256²). We pass the raw &lt;video&gt; element.
+ ▼
+ ┌─ POSE DETECTION ── TF.js runs the neural net on the GPU (WebGL)
+ │                     → array of landmarks {x, y, score, name}
+ ▼
+ ┌─ BODY-LOCK ─────── pick & keep ONE person (nearest to lock center; re-ID)
+ │                     so a passer-by can't steal the count
+ ▼
+ ┌─ LANDMARK FILTER ─ drop joints below confidence; "hold" occluded joints
+ ▼
+ ┌─ ONE-EURO SMOOTH ─ adaptive low-pass on each kept joint's x & y
+ │                     (steady when still, snappy when fast)
+ ▼
+ ┌─ ANGLE MATH ────── pick best body side; compute the exercise's joint angle
+ │                     → normalize to "progress" 0..1
+ ▼
+ ┌─ REP STATE MACHINE bottom-turnaround: down → reach depth → reverse = REP
+ ▼
+ ┌─ FORM ANALYSIS ─── view-aware, sustained, confidence-gated checks
+ │                     → fault + colored skeleton + cue
+ ▼
+ ┌─ VOICE FEEDBACK ── Web Speech speaks counts/cues (simple-English persona)
+ ▼
+ ┌─ DRAW ──────────── skeleton + overlays painted to &lt;canvas&gt; (also recorded)
+ ▼
+ ┌─ TELEMETRY ─────── (dev only) FPS, inference ms, confidence, rep state
+ ▼
+ └─ WORKOUT SUMMARY ─ per-set debrief → final report → save to DB
+</pre>
+
+<h3>Stage-by-stage</h3>
+<ol>
+  <li><b>Camera:</b> A user gesture starts the stream (required by browsers) and also "unlocks" speech audio. Front camera is mirrored so it feels like a mirror.</li>
+  <li><b>Frame capture:</b> We use <code>requestAnimationFrame</code> (rAF) — the browser's "draw a frame now" callback. Each tick we read the current <code>&lt;video&gt;</code> frame. rAF auto-throttles to the display refresh and pauses on hidden tabs (battery friendly).</li>
+  <li><b>Pre-processing:</b> The detector internally resizes the frame to its fixed input (e.g. 256×256), scales pixel values, and produces a tensor. We don't hand-code this — the model does it.</li>
+  <li><b>Pose detection:</b> The CNN outputs joint positions + confidence. 2D model (MoveNet) → 17 joints; 3D model (BlazePose) → 33 joints with depth. Runs on the GPU via WebGL.</li>
+  <li><b>Body-lock:</b> With multi-person output, we select one person (the one near the lock point / largest+centered) and re-identify them each frame so the rep count stays glued to the user.</li>
+  <li><b>Landmark filtering:</b> Joints below a confidence threshold are ignored; briefly occluded joints are "held" at their last good spot to avoid a wild jump.</li>
+  <li><b>One-Euro smoothing:</b> Each kept joint's x and y are passed through a One-Euro filter to kill jitter without adding lag (Chapter 9).</li>
+  <li><b>Angle math:</b> Choose the more visible body side, compute the exercise's defining angle (e.g. hip-knee-ankle for a squat), and normalize it into a 0→1 "progress" value (Chapter 10).</li>
+  <li><b>Rep state machine:</b> A turnaround detector counts a rep the instant the user reverses out of a deep-enough bottom — in real time, no pause needed.</li>
+  <li><b>Form analysis:</b> Form rules run while descending; a fault must persist several frames and clear a confidence bar before it speaks or rejects a rep.</li>
+  <li><b>Voice:</b> Counts and cues are spoken via the Web Speech API with a friendly, simple-English persona; a beep fallback exists.</li>
+  <li><b>Draw + telemetry:</b> The skeleton/overlays are drawn to a canvas (also the recording source). In Dev Mode a HUD shows FPS/inference/confidence.</li>
+  <li><b>Summary:</b> At set end we compute scores; the rest screen debriefs; the final report saves to the DB.</li>
+</ol>
+<div class="note"><b>Why on-device?</b> Streaming video to a server for inference would add 100–300 ms latency (too slow for live coaching), cost a lot of GPU/bandwidth, and create privacy/legal exposure. On-device = instant, cheap, private.</div>
+</div>
+
+<!-- ===================== CH7 ===================== -->
+<div class="page">
+<h1 id="ch7">7. Pose Detection &amp; Landmark Map</h1>
+
+<h3>Which model &amp; why</h3>
+<p>The default detector is <b>MoveNet MULTIPOSE_LIGHTNING</b> (TensorFlow.js). "MultiPose" = detects several people; "Lightning" = the fast variant. Selectively we switch to <b>BlazePose</b> for 3D (Chapter 8).</p>
+<table>
+<tr><th>Why MoveNet</th><th>Detail</th></tr>
+<tr><td>Real-time on mid-range phones</td><td>30–60 FPS on WebGL — essential for live coaching</td></tr>
+<tr><td>Multi-person + tracking</td><td>Needed for body-lock in a busy gym</td></tr>
+<tr><td>Runs fully in-browser</td><td>No server, private, cheap</td></tr>
+<tr><td>Good accuracy/speed trade-off</td><td>Lightning is fast; Thunder is more accurate but slower</td></tr>
+</table>
+
+<h3>How it works internally (plain English)</h3>
+<p>MoveNet is a <b>convolutional neural network (CNN)</b>. Convolutions slide small filters across the image to detect edges → shapes → body parts. The network outputs a <b>heatmap</b> per joint — a grid where the brightest cell is where that joint most likely is. The peak of each heatmap becomes the joint's (x, y), and the peak's strength becomes the <b>confidence score (0–1)</b>. Coordinates are normalized to the image, then scaled to canvas pixels.</p>
+
+<h3>Confidence scores</h3>
+<p>Every joint has a score. We use thresholds throughout: <code>&lt;0.25</code> → occlusion-hold (Chapter 9); <code>&lt;0.3</code> (<code>MIN_CONF</code>) → joint unusable for rep math; <code>&lt;0.5</code> (<code>HIGH_CONF</code>) → a detected fault is demoted to a warning rather than rejecting a rep. This prevents the AI from "shouting" about mistakes it isn't sure it saw.</p>
+
+<h3>Tracking</h3>
+<p>MoveNet's tracker assigns IDs across frames so a person stays the "same" person. On top of that we run our own <b>Body-Lock</b> (Chapter 13) for robustness.</p>
+
+<h3>The 17-landmark map (MoveNet / COCO)</h3>
+<pre class="diagram">
+            0 nose
+       1 L-eye   2 R-eye
+     3 L-ear       4 R-ear
+   5 L-shoulder ─────── 6 R-shoulder
+   │       \           /       │
+ 7 L-elbow   \       /     8 R-elbow
+   │           \   /           │
+ 9 L-wrist   11 L-hip 12 R-hip  10 R-wrist
+                │         │
+            13 L-knee  14 R-knee
+                │         │
+           15 L-ankle  16 R-ankle
+</pre>
+<table>
+<tr><th>#</th><th>Joint</th><th>Used for</th></tr>
+<tr><td>0–4</td><td>nose, eyes, ears</td><td>Orientation (front/side), head position</td></tr>
+<tr><td>5/6</td><td>shoulders</td><td>Press/curl/push-up angle, torso, stability</td></tr>
+<tr><td>7/8</td><td>elbows</td><td>Curl, press, push-up (middle joint)</td></tr>
+<tr><td>9/10</td><td>wrists</td><td>Curl/press end joint, "wrist above shoulder" gate</td></tr>
+<tr><td>11/12</td><td>hips</td><td>Squat/deadlift angle, sway/stability, center-of-mass</td></tr>
+<tr><td>13/14</td><td>knees</td><td>Squat/leg-press/leg-extension middle joint</td></tr>
+<tr><td>15/16</td><td>ankles</td><td>Squat end joint, base of support</td></tr>
+</table>
+<p>BlazePose adds 16 more (hands' fingers, feet's heels/toes, mid-face) for 33 total — useful for foot/hand orientation and depth.</p>
+</div>
+
+<!-- ===================== CH8 ===================== -->
+<div class="page">
+<h1 id="ch8">8. BlazePose 3D</h1>
+<h3>What it is</h3>
+<p><b>BlazePose</b> is Google's pose model (the one behind MediaPipe). In FORGE it runs through TensorFlow.js (tfjs runtime, "lite" variant). It returns <b>33 landmarks</b>, each with x, y <b>and z (depth)</b> plus visibility — a full 3D skeleton from a single camera.</p>
+
+<h3>How it works</h3>
+<p>Two stages: a fast <b>detector</b> finds the person and a region of interest, then a <b>tracker/regressor</b> predicts all 33 keypoints (and an estimated z) for that region. By tracking the ROI frame-to-frame it avoids re-detecting every frame, which keeps it fast for one person.</p>
+
+<h3>2D vs 3D</h3>
+<table>
+<tr><th></th><th>MoveNet (2D)</th><th>BlazePose (3D)</th></tr>
+<tr><td>Landmarks</td><td>17 (x, y)</td><td>33 (x, y, z, visibility)</td></tr>
+<tr><td>People</td><td>Multi-person</td><td>Single person</td></tr>
+<tr><td>Depth</td><td>No</td><td>Yes (estimated)</td></tr>
+<tr><td>Speed</td><td>Faster</td><td>Heavier</td></tr>
+<tr><td>Best for</td><td>Most reps, busy scenes, body-lock</td><td>Depth-invariant joint angles (bench, overhead press, rows, pulldown) + depth-sensitive faults</td></tr>
+</table>
+
+<h3>The Hybrid pipeline (how 3D actually helps)</h3>
+<p><b>This is the key point.</b> When BlazePose is active FORGE runs a <b>Hybrid</b> pipeline: the <b>2D</b> keypoints still lock/track the athlete and draw the skeleton (fast, robust), while the <b>3D world landmarks</b> (metres, hip-centred) measure the <b>joint angles</b> used for rep counting — via <code>angle3D()</code> in <code>angles.ts</code>. A 3D angle is <b>depth-invariant</b>: on a bench press, overhead press, row or lat pulldown the working arm travels <i>toward/away</i> from a side/45° camera, which foreshortens a 2D image-plane angle and warps rep detection. Measuring the angle in x/y/z removes that distortion, so reps count reliably from side and angled cameras. If 3D landmarks are momentarily missing, the counter falls back to the 2D angle automatically (see <code>rep-counter.ts → updateRep</code>).</p>
+
+<h3>Why only some exercises use it</h3>
+<p>For a squat or curl from the side, the limb moves <i>across</i> the camera, so a 2D angle is already accurate — 3D would only add cost. The exercises in <code>POSE_3D</code> (<code>bench-press</code>, <code>row</code>, <code>shoulder-press</code>, <code>rdl</code>, <code>pull-down</code>) are exactly the ones where the limb moves in depth, so <code>model-select.ts</code> enables BlazePose only there, and only on capable devices. BlazePose is <b>single-person</b>, so in 3D mode body-lock degrades to signature re-identification (a real trade-off). Production defaults to <b>Auto</b>, which is 2D for most cases and Hybrid for the compound lifts above.</p>
+
+<h3>Seeing which pipeline is live</h3>
+<p>The in-workout HUD shows an <b>AI</b> chip reading <code>2D</code> / <code>3D</code> / <code>HYB</code> (Hybrid), and the developer HUD adds <code>model</code>, <code>pipeline</code> and <code>angles</code> (2D image vs 3D world) rows plus an <code>angle3D</code> flag in the exported debug samples — so it's always verifiable which detector and which angle source produced a rep.</p>
+
+<h3>Advantages / Limitations / Performance</h3>
+<ul>
+  <li><b>Advantages:</b> depth-invariant joint angles for compound lifts, depth-aware faults, richer 33-point skeleton, stable single-person tracking.</li>
+  <li><b>Limitations:</b> z is <i>estimated</i> from one camera (not true depth), single-person only, heavier compute.</li>
+  <li><b>Performance:</b> on weak devices it drops FPS, so a runtime guard (Chapter 17) downgrades 3D→2D if FPS sags below a floor for ~2.5 s. The static device-tier check is the first gate; the FPS fallback is the real guarantee.</li>
+</ul>
+</div>
+
+<!-- ===================== CH9 ===================== -->
+<div class="page">
+<h1 id="ch9">9. One-Euro Filter</h1>
+<p>Raw pose landmarks <b>jitter</b> — even when you hold still, each joint wobbles a few pixels every frame because the model re-estimates from scratch. Jitter makes angles noisy, which causes false reps and flickering form colors. The <b>One-Euro filter</b> (Casiez et al., CHI 2012) removes jitter <i>without</i> the lag a normal smoother adds.</p>
+
+<h3>The core idea</h3>
+<p>It's an <b>adaptive low-pass filter</b>: smooth hard when the joint is nearly still (kills jitter), but smooth lightly when the joint moves fast (stay responsive, no lag). It adapts the cutoff frequency to the measured speed.</p>
+
+<h3>Algorithm &amp; formulas</h3>
+<div class="formula">
+Smoothing factor (exponential filter):<br/>
+&nbsp;&nbsp; τ = 1 / (2π · f_c) &nbsp;&nbsp;&nbsp; α = 1 / (1 + τ/Δt)<br/><br/>
+1) Estimate speed: &nbsp; dx = (xₜ − xₜ₋₁) / Δt &nbsp;→ smooth it with α(d_cutoff): &nbsp; êx<br/>
+2) Adapt cutoff: &nbsp; f_c = minCutoff + β · |êx|<br/>
+3) Smooth value: &nbsp; x̂ₜ = α(f_c) · xₜ + (1 − α(f_c)) · x̂ₜ₋₁
+</div>
+<p>Because Δt comes from real timestamps, the filter is <b>FPS-independent</b> — it behaves the same at 24 or 60 FPS. This is the exact code in <code>one-euro.ts</code>.</p>
+
+<h3>Parameters (tunable in Dev Settings)</h3>
+<table>
+<tr><th>Param</th><th>Default</th><th>Meaning</th><th>Effect</th></tr>
+<tr><td><code>minCutoff</code></td><td>1.7</td><td>Baseline smoothing when still</td><td>Lower = smoother but more lag; higher = snappier but more jitter</td></tr>
+<tr><td><code>beta</code> (β)</td><td>0.015</td><td>Speed reactivity</td><td>Higher = less lag on fast/heavy reps; lower = steadier but can lag</td></tr>
+<tr><td><code>dCutoff</code></td><td>1.0</td><td>Smoothing of the speed estimate</td><td>Rarely changed; lower if it feels twitchy when accelerating</td></tr>
+</table>
+
+<h3>Why it improves rep counting</h3>
+<p>The rep state machine watches the joint angle reverse direction at the bottom. Jitter creates fake tiny reversals → double counts or phantom reps. One-Euro removes those micro-reversals while preserving the real turnaround, so counts are clean. It also steadies the form colors and ROM/stability scores.</p>
+
+<h3>Practical example</h3>
+<p>Holding the bottom of a squat: raw knee angle might read 98°, 101°, 97°, 100°… One-Euro outputs a steady ~99°, so no false "you came up" trigger. Then you explode upward fast: β raises the cutoff so the filter tracks the quick rise with almost no lag, and the rep registers immediately.</p>
+<div class="note"><b>Occlusion hold:</b> the <code>KeypointSmoother</code> also "holds" a joint at its last good position when confidence drops below 0.25 (e.g. a dumbbell briefly hides the wrist), preventing a smoothed-but-wrong jump.</div>
+</div>
+
+<!-- ===================== CH10 ===================== -->
+<div class="page">
+<h1 id="ch10">10. Rep Counting Algorithm</h1>
+<p>Implemented in <code>rep-counter.ts</code> as a <b>bottom-turnaround (extremum) state machine</b>. A rep is counted the <b>instant the user reverses out of a deep-enough bottom</b> — no pause, no full lockout, no return-to-top needed. This was a deliberate redesign after gym testing showed the old method only counted when you stopped moving.</p>
+
+<h3>Step 1 — Angle → progress</h3>
+<p>Each exercise defines a joint triple and three angles (<code>exercises.ts</code>). We compute the live angle and normalize it:</p>
+<div class="formula">progress = (angle − startAngle) / (activeAngle − startAngle)&nbsp; → clamped to [0,1]</div>
+<p>progress ≈ 0 at the resting/top position, ≈ 1 at the worked/bottom position. Example squat: start 160°, active 100°, ideal 70°.</p>
+
+<h3>Step 2 — The state machine</h3>
+<pre class="diagram">
+        ┌──────── phase = UP (at top, waiting) ────────┐
+        │  track valley (shallowest progress)          │
+        │  IF progress &gt; ENTER(0.25) AND               │
+        │     progress &gt; valley + TURN(0.1)            │
+        │        → user is descending → phase = DOWN   │
+        └──────────────────────┬───────────────────────┘
+                               ▼
+        ┌──────── phase = DOWN (descending/bottom) ────┐
+        │  peak = max(peak, progress)  (deepest point) │
+        │  sample stability + run form checks          │
+        │  IF progress &lt; peak − TURN(0.1)              │
+        │        → user reversed → EVALUATE THE REP    │
+        └──────────────────────┬───────────────────────┘
+                               ▼
+              ┌──── peak &lt; MIN_REP_PEAK(0.5)? → ignore (fidget)
+              ├──── peak &lt; required depth?      → REJECT "go lower" (invalid++)
+              ├──── advanced & sustained error? → REJECT unsafe form (invalid++)
+              └──── else → VALID REP++  (score ROM/form/stability/conf)
+</pre>
+
+<h3>Step 3 — Thresholds (tuning constants)</h3>
+<table>
+<tr><th>Const</th><th>Value</th><th>Role</th></tr>
+<tr><td><code>ENTER</code></td><td>0.25</td><td>Progress past which a descent can begin</td></tr>
+<tr><td><code>TURN</code></td><td>0.1</td><td>Reversal needed to confirm a direction change (anti-jitter)</td></tr>
+<tr><td><code>MIN_REP_PEAK</code></td><td>0.5</td><td>Minimum depth or it's a fidget, not a rep</td></tr>
+<tr><td><code>MIN_CONF</code></td><td>0.3</td><td>Joint confidence floor to use it at all</td></tr>
+<tr><td><code>HIGH_CONF</code></td><td>0.5</td><td>Confidence needed for an error to reject a rep</td></tr>
+<tr><td><code>SUSTAIN</code></td><td>6 frames</td><td>A fault must persist this long to count</td></tr>
+</table>
+
+<h3>Step 4 — Mode-adjusted depth</h3>
+<p>Required depth eases by ±degrees per mode: Beginner gets a <b>+12°</b> easier target, Advanced a <b>−6°</b> stricter one. So beginners aren't punished for slightly shallow reps while advanced lifters are held to standard.</p>
+
+<h3>Edge cases handled</h3>
+<table>
+<tr><th>Case</th><th>How it's handled</th></tr>
+<tr><td><b>Heavy weight / grind</b></td><td>Counted on turnaround, not lockout — a slow heavy rep still registers as soon as you reverse</td></tr>
+<tr><td><b>Partial reps</b></td><td>Rejected if <code>peak &lt; required depth</code> → "Go lower" cue, logged as invalid</td></tr>
+<tr><td><b>Paused reps</b></td><td>Pausing at the bottom doesn't matter — the count triggers on the reversal whenever it happens</td></tr>
+<tr><td><b>Fidgets / re-grip</b></td><td>Ignored via <code>MIN_REP_PEAK</code> and the TURN band</td></tr>
+<tr><td><b>Too-fast reps</b></td><td>If &lt;450 ms since last rep → "Slow down, control it" cue</td></tr>
+<tr><td><b>Overhead press false reps</b></td><td><code>requireWristAboveShoulder</code>: arms hanging (also a straight elbow) read as start, not a rep</td></tr>
+<tr><td><b>Jitter double-count</b></td><td>TURN band + One-Euro smoothing + a light internal EMA (SMOOTH 0.35)</td></tr>
+<tr><td><b>Tracking loss</b></td><td>If the joint drops below confidence, the frame is skipped (no phantom reps)</td></tr>
+</table>
+
+<h3>False positives / negatives — honest limits</h3>
+<p>The engine can't know "ground truth" without video review. <b>Missed reps</b> are proxied by the engine-rejected count; <b>false reps</b> can only be confirmed by watching the recording. The TURN band + min-depth + confidence gates minimize both, but they're a heuristic, not perfection.</p>
+
+<h3>Failure sets &amp; counting modes</h3>
+<p>Two modes: <b>fixed</b> (target reps; the set auto-completes when hit) and <b>failure / reps-to-failure</b> (you press "Finish set" when you can't continue; the AI logs how many real reps you achieved). Both share the same counting core.</p>
+</div>
+
+<!-- ===================== CH11 ===================== -->
+<div class="page">
+<h1 id="ch11">11. Form Analysis</h1>
+<p>Form checks live in <code>form-rules.ts</code> and are evaluated by the rep-counter during the DOWN phase (from <code>CHECK_FROM = 0.35</code> progress onward). The design goal: <b>never nag about a mistake the AI isn't confident it saw.</b></p>
+
+<h3>The three gates before a fault "counts"</h3>
+<ol>
+  <li><b>View gate:</b> a check only runs if the camera view matches what it needs (e.g. a "back rounding" check needs a side view). <code>viewMatches(check.view, orientation)</code>.</li>
+  <li><b>Confidence gate:</b> if the involved joints are below <code>HIGH_CONF (0.5)</code>, an "error" is <b>demoted to a warning</b> — visible but it won't reject a rep.</li>
+  <li><b>Persistence gate:</b> a status must hold for <code>SUSTAIN = 6</code> consecutive frames (run-length tracking) before it's "active". One noisy frame never triggers a cue.</li>
+</ol>
+
+<h3>How a rep is judged Good / Bad / Incomplete</h3>
+<table>
+<tr><th>Verdict</th><th>Condition</th></tr>
+<tr><td><b>Perfect</b></td><td>ROM ≥ 90 AND form ≥ 85 AND stability ≥ 80</td></tr>
+<tr><td><b>Good (valid)</b></td><td>Reached required depth, no sustained high-confidence error (in advanced)</td></tr>
+<tr><td><b>Incomplete</b></td><td><code>peak &lt; required depth</code> → rejected, "Go lower" type cue</td></tr>
+<tr><td><b>Bad / cheating</b></td><td>Sustained high-confidence form error (advanced rejects it; beginner warns)</td></tr>
+</table>
+
+<h3>Scoring formulas</h3>
+<div class="formula">
+form = max(0, 100 − errors×30 − warns×12)<br/>
+rom = clamp(peak / idealProgress) × 100 &nbsp; (idealProgress from idealAngle)<br/>
+stability = clamp(1 − (hipSwayRange / torsoLength) × 1.2) × 100<br/>
+confidence = mean(per-frame min joint score) × 100
+</div>
+
+<h3>Detecting specific faults</h3>
+<table>
+<tr><th>Fault</th><th>How it's detected</th></tr>
+<tr><td>Partial ROM / shallow</td><td>peak progress vs required depth</td></tr>
+<tr><td>Swinging / instability</td><td>hip-center horizontal sway range ÷ torso length (sampled each frame)</td></tr>
+<tr><td>Knees caving, torso lean, etc.</td><td>Angle/posture checks vs tolerance bands, view-aware</td></tr>
+<tr><td>Too fast (momentum/cheat)</td><td>time between reps &lt; 450 ms</td></tr>
+<tr><td>Plank/hold sag</td><td>shoulder-hip-knee angle vs posture threshold (hold mode)</td></tr>
+</table>
+<p>Faults map to a <b>colored skeleton</b>: green = good, amber = warning, red = error/danger, idle = at rest. The worst active fault drives the color and the joints it highlights.</p>
+<div class="warn"><b>Honest limit:</b> true back-rounding and heel-lift need depth or a clean side view. In 2D from a bad angle these are reported conservatively (warning, not rejection) to avoid false alarms.</div>
+</div>
+
+<!-- ===================== CH12 ===================== -->
+<div class="page">
+<h1 id="ch12">12. Exercise Recognition</h1>
+<p><b>Important honest point:</b> FORGE does <b>not</b> auto-classify which exercise you're doing from raw video. It uses <b>declared-exercise + configuration matching</b>, which is the right engineering choice here. The user picks the exercise (e.g. from the library), and the trainer loads that exercise's tuning.</p>
+
+<h3>How "recognition" actually works</h3>
+<pre class="diagram">
+User picks exercise (slug)  →  Exercise row in DB has poseKey
+        │                              │
+        ▼                              ▼
+  /train/[slug]              CONFIGS[poseKey] in exercises.ts
+        │                              │
+        └──────────► RepCounter(config, formChecks, {mode, view})
+                         joint triple + start/active/ideal angles + cues
+</pre>
+<p>Each exercise's <code>poseKey</code> selects a <code>RepConfig</code>: which joints to measure, the start/active/ideal angles, the incomplete-rep cue, and special gates (e.g. <code>requireWristAboveShoulder</code> for presses). Families share configs — <code>squatLike</code>, <code>curlLike</code>, <code>pushupLike</code>, <code>pressLike</code>, <code>legExtensionLike</code>, <code>legPressLike</code>, etc.</p>
+
+<h3>Why declared, not classified</h3>
+<table>
+<tr><th>Declared (chosen)</th><th>Auto-classification (rejected for v1)</th></tr>
+<tr><td>100% reliable — no misclassification</td><td>Easily confused (squat vs leg-press vs lunge look similar)</td></tr>
+<tr><td>Zero extra latency/compute</td><td>Needs a second model running each frame</td></tr>
+<tr><td>Lets us tune each exercise precisely</td><td>Hard to tune; needs a large labeled dataset</td></tr>
+<tr><td>Matches real UX (you choose your workout)</td><td>Solves a problem users don't really have</td></tr>
+</table>
+
+<h3>Config "confidence" &amp; switching</h3>
+<p>The relevant confidence is <b>landmark</b> confidence (per joint), which gates rep counting and form checks. Switching exercises = navigating to a different <code>/train/[slug]</code>, which instantiates a fresh <code>RepCounter</code> with that exercise's config. The orientation detector (<code>detectOrientation</code>) recognizes <i>camera view</i> (front/side), which the form checks adapt to.</p>
+
+<h3>Supported exercises</h3>
+<p>120 exercises in the catalog; the AI-tracked subset (≈77) have a <code>poseKey</code> + config. Categories: squats/lunges (knee-driven), presses (overhead/bench), curls/extensions (elbow), rows/pulls, push-ups/dips, leg machines (leg-press, leg-extension, leg-curl), and holds (plank, wall-sit). Non-tracked exercises still appear in the library with cues but skip live counting.</p>
+</div>
+
+<!-- ===================== CH13 ===================== -->
+<div class="page">
+<h1 id="ch13">13. Camera Logic</h1>
+<p>Camera setup is the single biggest factor in tracking accuracy. <code>camera-setup.ts</code> stores per-exercise recommendations; <code>camera-guide.tsx</code> + <code>use-camera-check.ts</code> validate the setup before the workout and <b>auto-start</b> when the user is correctly positioned (no Start button).</p>
+
+<h3>Best positions per exercise</h3>
+<table>
+<tr><th>Exercise type</th><th>Best angle</th><th>Why</th></tr>
+<tr><td>Squat, deadlift, lunge</td><td><b>Side-on</b></td><td>Depth + back angle are only visible from the side</td></tr>
+<tr><td>Overhead/shoulder press</td><td>Front or side</td><td>Lockout visible both ways; front shows symmetry</td></tr>
+<tr><td>Bicep curl</td><td>Front or side</td><td>Elbow angle clear; front shows both arms</td></tr>
+<tr><td>Push-up, plank</td><td>Side-on, low</td><td>Body-line sag needs a side profile</td></tr>
+<tr><td>Leg press / extension</td><td>Side-on</td><td>Knee angle range is a side-view measurement</td></tr>
+</table>
+
+<h3>What the camera guide checks</h3>
+<ul>
+  <li><b>Body visibility:</b> are the required joints (from <code>camera-setup.ts</code>) all detected above threshold?</li>
+  <li><b>Distance/framing:</b> is the whole body in frame (not too close/far)?</li>
+  <li><b>Angle/orientation:</b> does the detected orientation match the exercise's required view?</li>
+  <li><b>Lighting/confidence:</b> is average landmark confidence high enough?</li>
+</ul>
+<p>When all green for a short, sustained period, a countdown auto-starts the set.</p>
+
+<h3>Front vs rear camera</h3>
+<p><code>camera.ts</code> handles <code>facingMode</code> (<code>user</code> = front, <code>environment</code> = rear) and a flip control. Front camera is <b>mirrored</b> (so it feels natural); the mirror is undone in coordinate math so left/right joints stay correct. Rear camera (on a tripod) is the recommended setup for lower-body work.</p>
+
+<h3>Occlusion, lighting, distance, height</h3>
+<table>
+<tr><th>Problem</th><th>Mitigation</th></tr>
+<tr><td>Equipment hides a joint</td><td>Occlusion-hold in the smoother + confidence gating</td></tr>
+<tr><td>Low light → low confidence</td><td>Guide warns; confidence gate prevents bad reps; cues to improve lighting</td></tr>
+<tr><td>Too close/far</td><td>Guide checks full-body framing before start</td></tr>
+<tr><td>Camera too high/low</td><td>Recommended waist-height + side-on in the guide</td></tr>
+</table>
+
+<h3>Multi-person handling &amp; tracking lock (Body-Lock)</h3>
+<p>In a gym, others walk through frame. <code>body-lock.ts</code> locks onto one person and re-identifies them each frame (nearest to the lock center / largest-and-centered), so a passer-by can't hijack your rep count. The user can also tap to set the lock target, and reset it. (In 3D/BlazePose mode, which is single-person, lock degrades — a known trade-off.)</p>
+</div>
+
+<!-- ===================== CH14 ===================== -->
+<div class="page">
+<h1 id="ch14">14. Computer Vision Foundations</h1>
+<p>This chapter explains the CV concepts the app relies on — useful for "explain the fundamentals" questions.</p>
+
+<h3>Landmarks &amp; coordinates</h3>
+<p>A <b>landmark</b> (keypoint) is a body joint the model locates: <code>{x, y, score, name}</code> (plus <code>z</code> in 3D). Coordinates are first normalized (0–1 of the image) then scaled to canvas pixels. Image y grows <b>downward</b> (top-left origin) — important when comparing "above/below" (e.g. wrist above shoulder means smaller y).</p>
+
+<h3>Vectors &amp; joint angles</h3>
+<p>To measure a joint angle at B between A and C, form two vectors BA and BC and use the dot product:</p>
+<div class="formula">
+BA = A − B,&nbsp; BC = C − B<br/>
+cos θ = (BA · BC) / (|BA| · |BC|)&nbsp; → &nbsp; θ = arccos(cos θ) × 180/π
+</div>
+<p>This is exactly <code>angle(a,b,c)</code> in <code>angles.ts</code> (clamped to avoid NaN). <code>angleFromVertical</code> uses <code>atan2(dx, dy)</code> to measure a segment's tilt vs vertical (for torso lean / body-line checks). The 3D variant <code>angle3D(a,b,c)</code> uses the same dot-product formula over x/y/z from BlazePose world landmarks, giving a depth-invariant joint angle for the Hybrid pipeline (Chapter 8).</p>
+
+<h3>Distance calculations</h3>
+<p>Euclidean distance <code>hypot(dx, dy)</code> measures limb/segment lengths — used for vector magnitudes, torso length (stability normalization), and framing checks.</p>
+
+<h3>Temporal smoothing &amp; motion tracking</h3>
+<p>Per-joint One-Euro filtering over time (Chapter 9) plus a light EMA on the rep angle. Motion is tracked as the change in the normalized "progress" signal; its direction (increasing/decreasing) drives the rep phase.</p>
+
+<h3>Depth estimation</h3>
+<p>2D has no depth. BlazePose 3D estimates z from a single camera via a model trained on 3D-labeled data — an <i>inference</i>, not a measurement, so it's approximate. Used only for depth-sensitive faults (Chapter 8).</p>
+
+<h3>Best-side selection &amp; orientation</h3>
+<p><code>bestSide</code> averages confidence over each body side and uses whichever is more reliably seen (so a side-on user is tracked on the camera-facing side). <code>detectOrientation</code> classifies the camera view (front vs side) from the relative positions of shoulders/hips, letting form checks adapt.</p>
+</div>
+
+<!-- ===================== CH15 ===================== -->
+<div class="page">
+<h1 id="ch15">15. Algorithms Used (catalog)</h1>
+<p>Every notable algorithm in the project, what it does, why it's needed, complexity, and trade-offs. <i>n</i> = landmarks per frame (17 or 33); per-frame work is effectively O(n) ≈ constant, so real-time cost is dominated by the neural-net inference.</p>
+
+<table>
+<tr><th>Algorithm</th><th>What / why</th><th>Big-O</th><th>Advantages</th><th>Limitations</th></tr>
+<tr><td><b>Pose estimation (CNN)</b></td><td>MoveNet/BlazePose locate joints from pixels — the foundation</td><td>O(1)/frame*</td><td>Real-time, on-device</td><td>Fixed cost; accuracy varies with view/light (*per fixed input size)</td></tr>
+<tr><td><b>One-Euro filter</b></td><td>Adaptive low-pass to remove jitter without lag</td><td>O(n)</td><td>FPS-independent, tiny cost</td><td>Needs tuning per use-case</td></tr>
+<tr><td><b>Rep state machine</b></td><td>Bottom-turnaround extremum detection → real-time reps</td><td>O(1)/frame</td><td>Counts mid-motion, robust to pauses</td><td>Threshold-based heuristic</td></tr>
+<tr><td><b>Angle calculation</b></td><td>Dot-product interior angle at a joint</td><td>O(1)</td><td>Exact, cheap</td><td>2D only sees the projected angle</td></tr>
+<tr><td><b>Joint vector math</b></td><td>Vectors, magnitudes (hypot), atan2 for tilt</td><td>O(1)</td><td>Standard geometry</td><td>Sensitive to noisy points (mitigated by smoothing)</td></tr>
+<tr><td><b>Landmark smoothing (EMA)</b></td><td>Light exponential average on the rep angle</td><td>O(1)</td><td>Extra stability</td><td>Adds slight lag</td></tr>
+<tr><td><b>Occlusion hold</b></td><td>Freeze a low-confidence joint at last good spot</td><td>O(1)</td><td>Prevents wild jumps</td><td>Stale if occlusion is long</td></tr>
+<tr><td><b>Body-Lock tracking</b></td><td>Lock + re-identify one person across frames</td><td>O(p)</td><td>Anti person-switch in gyms</td><td>Degrades in single-person 3D mode (p = people)</td></tr>
+<tr><td><b>Device-tier auto-fallback</b></td><td>Classify device + runtime FPS guard 3D→2D</td><td>O(1)</td><td>Keeps FPS above floor</td><td>Static check is approximate; FPS guard is the real guarantee</td></tr>
+<tr><td><b>Hybrid 2D/3D selection</b></td><td>Pick engine by exercise × tier × override</td><td>O(1)</td><td>Depth only where it pays</td><td>3D loses multi-person</td></tr>
+<tr><td><b>Confidence filtering</b></td><td>Threshold gates on landmark scores</td><td>O(n)</td><td>Suppresses false faults/reps</td><td>May ignore real but low-confidence data</td></tr>
+<tr><td><b>Exercise config matching</b></td><td>Declared exercise → RepConfig (not ML classification)</td><td>O(1)</td><td>100% reliable, tunable</td><td>User must pick exercise</td></tr>
+<tr><td><b>Run-length form gating</b></td><td>Require SUSTAIN frames before a fault fires</td><td>O(checks)</td><td>Kills one-frame false alarms</td><td>Small reaction delay</td></tr>
+<tr><td><b>Stability (sway) metric</b></td><td>Hip-sway range ÷ torso length</td><td>O(1)</td><td>Catches swinging/cheating</td><td>View-dependent</td></tr>
+<tr><td><b>Orientation detection</b></td><td>Front vs side from joint geometry</td><td>O(1)</td><td>Makes form checks view-aware</td><td>Ambiguous at 45°</td></tr>
+<tr><td><b>Frame sampling (rAF)</b></td><td>requestAnimationFrame drives the loop</td><td>—</td><td>Syncs to display, pauses hidden tabs</td><td>Coupled to refresh rate</td></tr>
+<tr><td><b>Video encoding pipeline</b></td><td>canvas.captureStream → MediaRecorder (webm/mp4)</td><td>O(frames)</td><td>Burned-in overlays, on-device</td><td>Can't capture system TTS audio on web</td></tr>
+<tr><td><b>Throttling/EMA telemetry</b></td><td>FPS/inference EMA, 200 ms HUD throttle</td><td>O(1)</td><td>Low overhead metrics</td><td>Dev-only</td></tr>
+</table>
+</div>
+
+<!-- ===================== CH16 ===================== -->
+<div class="page">
+<h1 id="ch16">16. AI Models</h1>
+
+<h3>Model 1 — MoveNet MULTIPOSE_LIGHTNING (primary, 2D)</h3>
+<table>
+<tr><td><b>Architecture</b></td><td>CNN (MobileNet-style feature extractor + center/heatmap heads), multi-person</td></tr>
+<tr><td><b>Inputs</b></td><td>RGB video frame (resized to a fixed square internally)</td></tr>
+<tr><td><b>Outputs</b></td><td>Up to 6 people × 17 keypoints {x, y, score} + tracking IDs</td></tr>
+<tr><td><b>Strengths</b></td><td>Fast (30–60 FPS), multi-person, on-device, good speed/accuracy</td></tr>
+<tr><td><b>Weaknesses</b></td><td>2D only (no depth), accuracy drops with occlusion/poor light/odd angles</td></tr>
+<tr><td><b>Why chosen</b></td><td>Real-time coaching needs speed + multi-person for body-lock</td></tr>
+</table>
+
+<h3>Model 2 — BlazePose (selective, 3D)</h3>
+<table>
+<tr><td><b>Architecture</b></td><td>Two-stage detector + keypoint regressor (tfjs runtime, "lite")</td></tr>
+<tr><td><b>Inputs</b></td><td>RGB frame + tracked region of interest</td></tr>
+<tr><td><b>Outputs</b></td><td>33 keypoints {x, y, z, visibility}, single person</td></tr>
+<tr><td><b>Strengths</b></td><td>Depth-aware, dense skeleton, stable single-person tracking</td></tr>
+<tr><td><b>Weaknesses</b></td><td>Heavier, single-person, z is estimated not measured</td></tr>
+<tr><td><b>Why chosen</b></td><td>Depth-sensitive faults on capable devices</td></tr>
+</table>
+
+<h3>Supporting "models"</h3>
+<p><b>Web Speech (speechSynthesis)</b> — the browser's built-in TTS voice for coaching (not a model we ship; a platform API). A beep tone is the fallback.</p>
+
+<h3>Alternatives considered</h3>
+<table>
+<tr><th>Alternative</th><th>Why not (for v1)</th></tr>
+<tr><td>MoveNet SinglePose Thunder</td><td>More accurate but single-person + slower — loses body-lock</td></tr>
+<tr><td>MediaPipe Pose (native)</td><td><code>@mediapipe/pose</code> had no clean ESM build (aliased to a stub); used BlazePose via tfjs instead</td></tr>
+<tr><td>PoseNet</td><td>Older, less accurate than MoveNet</td></tr>
+<tr><td>OpenPose</td><td>Server/GPU heavy — not browser-real-time</td></tr>
+<tr><td>Server-side inference</td><td>Latency + cost + privacy — defeats the on-device thesis</td></tr>
+</table>
+</div>
+
+<!-- ===================== CH17 ===================== -->
+<div class="page">
+<h1 id="ch17">17. Performance Optimization</h1>
+<p>Live coaching means everything per frame must finish in ~16–33 ms. Optimizations span the whole stack.</p>
+
+<h3>FPS &amp; adaptive model selection</h3>
+<ul>
+  <li><b>Static device-tier</b> (<code>device-tier.ts</code>): low/mid/high gates whether 3D is even attempted.</li>
+  <li><b>Runtime FPS guard</b> (in <code>use-pose-trainer.ts</code>): an FPS EMA; if FPS sits below a floor (24 mid / 18 low) for ~2.5 s, it <b>downgrades 3D→2D</b> automatically (Auto mode only) and logs a fallback event.</li>
+  <li>This two-layer approach guarantees responsiveness even when the static guess is wrong.</li>
+</ul>
+
+<h3>CPU / GPU</h3>
+<ul>
+  <li>TF.js <b>WebGL backend</b> runs inference on the GPU; the CPU handles only light geometry.</li>
+  <li>Model loaded <b>once</b> and reused (<code>modelRef</code>); no reload per set.</li>
+  <li>Skeleton drawn on <b>canvas</b> (GPU compositing) instead of DOM nodes.</li>
+</ul>
+
+<h3>Memory</h3>
+<ul>
+  <li>Tensors are short-lived per frame; the detector manages disposal.</li>
+  <li>Debug log capped at <b>8000 events</b>; dev session history capped at <b>200</b>.</li>
+  <li>Refs instead of state arrays for per-frame data → no React garbage from re-renders.</li>
+</ul>
+
+<h3>Latency reduction</h3>
+<ul>
+  <li>On-device inference (no network round-trip).</li>
+  <li>One-Euro tuned for low lag (β raises responsiveness on fast reps).</li>
+  <li>Reps counted on turnaround (instant), not on lockout.</li>
+</ul>
+
+<h3>Frame handling &amp; battery</h3>
+<ul>
+  <li><code>requestAnimationFrame</code> auto-throttles to the display and <b>pauses on hidden tabs</b> (saves battery).</li>
+  <li>HUD/telemetry updates throttled to 200 ms; voice cues throttled (≥1.5 s gaps) to avoid spam and audio overlap.</li>
+  <li>Lighter "Lightning" model + "lite" BlazePose variant chosen for mobile battery/thermals.</li>
+</ul>
+
+<h3>Render performance</h3>
+<ul>
+  <li>Per-frame numbers kept in refs; only user-visible values trigger React updates.</li>
+  <li>Heavy TF.js trainer dynamically imported so other pages stay light.</li>
+  <li>Service-worker cleanup avoids stale, slow cached bundles.</li>
+</ul>
+</div>
+
+<!-- ===================== CH18 ===================== -->
+<div class="page">
+<h1 id="ch18">18. Debug System (Developer Mode)</h1>
+<p>A complete, <b>hidden</b> developer toolkit for tuning the AI — invisible to normal users (production always defaults to Auto/2D). Unlock once with <code>?unlock=forge</code> (persists in <code>localStorage["forge:dev"]</code>); always on in dev builds.</p>
+
+<h3>Components</h3>
+<table>
+<tr><th>Feature</th><th>What it does</th><th>Why it helps</th></tr>
+<tr><td><b>Developer Settings</b></td><td>One-Euro sliders (minCutoff/beta/dCutoff), engine override (Auto/2D/3D), HUD toggle, device-tier readout</td><td>Tune smoothing &amp; A/B engines without code changes</td></tr>
+<tr><td><b>Live HUD</b></td><td>Three sections: <b>engine</b> (FPS, inference ms, model, pipeline 2D/3D/Hybrid, 3D→2D fallback), <b>exercise</b> (slug, poseKey, detected view vs required view), <b>rep engine</b> (tracked side + joint triple, live joint angle + its source 3D/2D, progress/peak vs required depth, turnaround tolerance, rep phase, rep confidence, landmark confidence, wrist-veto state, and the <b>last rep decision</b> — ✓/✗ with reason, peak, required, ROM, confidence)</td><td>See exactly what the AI sees — and why each rep counted or didn't — in real time</td></tr>
+<tr><td><b>FPS sparkline</b></td><td>Mini graph of FPS over time (ref line at 30)</td><td>Spot frame drops/thermal throttling</td></tr>
+<tr><td><b>Inference sparkline</b></td><td>Mini graph of inference ms (ref 33, auto-max)</td><td>Compare model cost (2D vs 3D)</td></tr>
+<tr><td><b>Debug log</b></td><td>Structured events (sample/rep/rep-rejected/tracking-loss/fallback), capped 8000. Reps carry peak/required/angleSource; 1 Hz samples carry orientation, side, joints, angle, progress/peak/required and wrist-veto state</td><td>Reconstruct exactly what happened, per rep and per second</td></tr>
+<tr><td><b>JSON export</b></td><td>Full session + log dump, stamped with a <code>tuning</code> block: the exact exercise config (start/active/ideal angles, turnaround tolerance), required view, rep-engine constants (<code>REP_TUNING</code>), smoothing params and engine override the session ran with</td><td>Data-driven threshold tuning — numbers are traceable to the config that produced them</td></tr>
+<tr><td><b>CSV export</b></td><td>Per-set rows with full metric columns</td><td>Open in Excel/Sheets, pivot</td></tr>
+<tr><td><b>AI log export (/workout)</b></td><td>The Workout Session flow collects each AI-tracker panel's debug log; the post-workout summary offers a dev-only JSON export of all tracker sessions with their per-exercise configs</td><td>Same tuning workflow for full gym sessions</td></tr>
+<tr><td><b>Session tagging</b></td><td>Tag exercise/weight/angle/device/lighting/PR/failure/notes</td><td>Make comparisons meaningful</td></tr>
+<tr><td><b>Session History dashboard</b></td><td>Auto-saved per-session records: search/filter/sort, favorite, delete, multi-select export, <b>Compare</b> (2D vs 3D side-by-side), <b>Trends</b> sparklines + top-error exercises</td><td>Longitudinal tuning &amp; regression tracking</td></tr>
+</table>
+
+<h3>How it's kept hidden</h3>
+<ul>
+  <li>Dev pages render "not available" unless unlocked; nothing is linked in the normal navigation.</li>
+  <li>Engine override + HUD live behind the dev gate; <b>production stays on Auto</b>.</li>
+  <li>All telemetry is <b>device-local</b> (localStorage) — no server cost, no production schema, no user data exposure.</li>
+</ul>
+
+<h3>Telemetry data flow</h3>
+<pre class="diagram">
+use-pose-trainer loop → logEvent() (capped) + telemetry state (200ms throttle)
+        │                          │
+        ▼                          ▼
+   getDebugLog()            live-session HUD + sparklines
+        │
+        ▼ (on set/session end, dev only)
+   session-report → computeStats() → saveSession() → dev-history.ts (localStorage)
+        │
+        ▼
+   /settings/developer/history → table · compare · trends · export
+
+/workout (Workout Session System):
+   AiSetTracker unmount → onDebugLog(chunk) → summary "AI debug log" JSON export
+</pre>
+</div>
+
+<!-- ===================== CH19 ===================== -->
+<div class="page">
+<h1 id="ch19">19. Security &amp; Privacy</h1>
+
+<h3>Camera permissions &amp; privacy</h3>
+<ul>
+  <li>The camera only opens after an explicit <b>user gesture</b> (browser-enforced), and the browser shows its own in-use indicator.</li>
+  <li><b>Video never leaves the device</b> for inference — pose detection runs locally. Recordings are saved locally (download / Web Share); we don't upload media.</li>
+  <li>This is the strongest privacy story possible for a camera app: the sensitive data (your body on video) stays on your hardware.</li>
+</ul>
+
+<h3>Authentication &amp; session security</h3>
+<ul>
+  <li>Passwords hashed with <b>bcrypt</b> (salted, slow) — never stored in plaintext.</li>
+  <li>Auth token is a signed <b>JWT</b> in an <b>HTTP-only, Secure, SameSite</b> cookie — unreadable by JS (XSS-resistant) and not sent cross-site (CSRF-resistant).</li>
+  <li>Google sign-in tokens are verified <b>server-side</b> before we trust them.</li>
+  <li><b>Mandatory login</b>: <code>src/proxy.ts</code> blocks all app/trainer routes for unauthenticated users.</li>
+</ul>
+
+<h3>Data protection</h3>
+<ul>
+  <li>Input validated with <b>zod</b> on every API route (rejects malformed/malicious payloads).</li>
+  <li>Prisma uses parameterized queries → <b>SQL-injection safe</b>.</li>
+  <li>Secrets (DB URL, JWT secret, OAuth IDs) are <b>environment variables</b>, never committed; <code>.env</code> is gitignored.</li>
+  <li>Only structured workout data is stored server-side — minimal personal data footprint.</li>
+</ul>
+
+<h3>Local storage scope</h3>
+<p>localStorage holds only non-sensitive device preferences and <b>dev-only</b> telemetry. No passwords or tokens are kept there.</p>
+
+<div class="warn"><b>Operational note:</b> real database credentials were shared in chat during setup — those should be <b>rotated</b>. Always treat any secret that touches a chat/log as compromised.</div>
+
+<h3>Future cloud architecture (when added)</h3>
+<ul>
+  <li>If recordings ever sync to the cloud: encrypt at rest + in transit, signed time-limited upload URLs, per-user storage isolation, explicit opt-in consent.</li>
+  <li>Rate-limiting + audit logging on APIs; secret manager instead of plain env vars at scale.</li>
+</ul>
+</div>
+
+<!-- ===================== CH20 ===================== -->
+<div class="page">
+<h1 id="ch20">20. Deployment</h1>
+
+<h3>Hosting</h3>
+<p>Deployed on <b>Render</b> (Vercel-compatible too). The app is a single Next.js service; the database is <b>Neon PostgreSQL</b> (separate managed service). Code lives on GitHub (<code>github.com/crazydevjs/AI-Trainer</code>).</p>
+
+<h3>Build process</h3>
+<pre class="diagram">
+git push origin main
+        │  (auto-deploy webhook)
+        ▼
+Render: install deps → prisma generate → next build → start
+        │                    │              │
+        │              typed Prisma   optimized production
+        │               client         server + assets
+        ▼
+Live URL (HTTPS) — Next server renders pages + serves /api routes
+</pre>
+
+<h3>Environment variables</h3>
+<table>
+<tr><th>Variable</th><th>Purpose</th></tr>
+<tr><td><code>DATABASE_URL</code></td><td>Neon pooled PostgreSQL connection string</td></tr>
+<tr><td><code>JWT_SECRET</code> / auth secret</td><td>Signs/verifies the session JWT</td></tr>
+<tr><td><code>GOOGLE_CLIENT_ID</code></td><td>Google OAuth verification</td></tr>
+<tr><td><code>NODE_ENV</code></td><td><code>production</code> (also forces Auto engine, hides dev tools)</td></tr>
+</table>
+
+<h3>Database lifecycle</h3>
+<ul>
+  <li><code>prisma db push</code> (or migrations) creates the schema in Neon.</li>
+  <li><code>prisma db seed</code> loads 120 exercises, equipment, achievements.</li>
+  <li>A real bug we hit: a wrong/empty <code>DATABASE_URL</code> caused "table does not exist" (P2021) — fixed by pointing to the right DB, pushing schema, and reseeding.</li>
+</ul>
+
+<h3>CI/CD</h3>
+<p>Lightweight: GitHub push to <code>main</code> → Render auto-build/deploy. <code>npm run build</code> is the local gate before every push (must compile clean). No separate test pipeline yet (a future improvement — see Chapter 23).</p>
+
+<h3>Build-time fixes worth knowing</h3>
+<ul>
+  <li><code>@mediapipe/pose</code> lacks clean ESM exports → aliased to a stub in <code>next.config.ts</code>; BlazePose runs via the tfjs runtime instead.</li>
+  <li>Service-worker cleanup component prevents stale cached bundles in production.</li>
+</ul>
+</div>
+
+<!-- ===================== CH21 ===================== -->
+<div class="page">
+<h1 id="ch21">21. 100 Interview Questions &amp; Answers</h1>
+<p>Grouped beginner → intermediate → advanced. Each: answer, why it's right, and the common mistake.</p>
+
+<h2>Beginner (1–30)</h2>
+<ol class="qlist">
+<li><b>What is FORGE / AI-Trainer?</b><br/>A web app that uses your camera + on-device AI to detect your body, count reps, score form, and coach you by voice in real time. <i>Why right:</i> it captures the three pillars (detect, count, coach). <i>Mistake:</i> calling it "just a workout logger" — the AI vision is the core.</li>
+<li><b>What problem does it solve?</b><br/>Affordable, always-available form correction + automatic tracking without a human trainer. <i>Mistake:</i> focusing only on counting and forgetting the injury-prevention/form angle.</li>
+<li><b>What tech stack does it use?</b><br/>Next.js 16 + React 19 + TypeScript (frontend/API), TensorFlow.js (on-device pose AI), PostgreSQL + Prisma (data), JWT auth. <i>Mistake:</i> saying the AI runs on a server — it runs in the browser.</li>
+<li><b>Why run the AI in the browser, not the server?</b><br/>Zero inference latency, near-zero server cost, and privacy (video never leaves the device). <i>Mistake:</i> assuming server GPUs are "more powerful so better" — the latency/cost/privacy win dominates for live coaching.</li>
+<li><b>What is pose detection?</b><br/>Locating body joints (landmarks) in an image, each as (x, y) + a confidence score. <i>Mistake:</i> confusing it with object detection (boxes) — pose gives joint points.</li>
+<li><b>Which pose model is the default?</b><br/>MoveNet MULTIPOSE_LIGHTNING (2D, multi-person, fast). <i>Mistake:</i> saying MediaPipe — that's used selectively via BlazePose and was stubbed at build.</li>
+<li><b>How many landmarks does MoveNet return?</b><br/>17 (nose, eyes, ears, shoulders, elbows, wrists, hips, knees, ankles). BlazePose returns 33. <i>Mistake:</i> mixing up the two counts.</li>
+<li><b>What is a confidence score?</b><br/>The model's certainty (0–1) that a joint is where it says. We gate logic on it. <i>Mistake:</i> treating all detected joints as equally trustworthy.</li>
+<li><b>How is a rep counted at a high level?</b><br/>We turn a joint angle into 0→1 "progress", then count when the user reverses out of a deep-enough bottom. <i>Mistake:</i> "we count when the leg straightens fully" — we count on the turnaround, not lockout.</li>
+<li><b>What is the One-Euro filter for?</b><br/>To remove landmark jitter without adding lag, so reps and form scores are stable. <i>Mistake:</i> calling it a simple average — it's adaptive to speed.</li>
+<li><b>Why TypeScript?</b><br/>Pose data is structured ({x,y,score}); types catch bugs before runtime. <i>Mistake:</i> "it's just preference" — it materially prevents a class of bugs here.</li>
+<li><b>Why Next.js?</b><br/>One codebase for UI, API, auth, and SSR with great routing/deploy. <i>Mistake:</i> thinking it's only a frontend framework.</li>
+<li><b>What is the App Router?</b><br/>Next.js's file-based routing where folders map to URLs and components render on the server by default. <i>Mistake:</i> confusing it with the older Pages Router.</li>
+<li><b>What is a Server Component?</b><br/>A component rendered on the server, shipping no JS and able to access secrets/DB directly. <i>Mistake:</i> using browser APIs in one without <code>"use client"</code>.</li>
+<li><b>Why is the trainer a full-screen route outside the app shell?</b><br/>The spec requires only camera + minimal overlays, no sidebar/chrome. <i>Mistake:</i> nesting it in the dashboard layout.</li>
+<li><b>How does login work?</b><br/>bcrypt-hashed password, then a signed JWT stored in an HTTP-only cookie. <i>Mistake:</i> storing the token in localStorage (XSS risk).</li>
+<li><b>Why HTTP-only cookies for the token?</b><br/>JavaScript can't read them, so XSS can't steal the session. <i>Mistake:</i> assuming any cookie is automatically secure.</li>
+<li><b>What database and ORM?</b><br/>PostgreSQL (Neon) via Prisma. <i>Mistake:</i> saying NoSQL — the data is relational (users→sessions→sets).</li>
+<li><b>What is Prisma?</b><br/>A type-safe ORM that generates a typed client from a schema and handles migrations. <i>Mistake:</i> calling it a database — it's the access layer.</li>
+<li><b>Where are workout videos stored?</b><br/>On the device (recorded via MediaRecorder, saved locally). <i>Mistake:</i> assuming they upload to the server.</li>
+<li><b>What does the camera guide do?</b><br/>Validates visibility/angle/lighting/framing and auto-starts the set when you're positioned. <i>Mistake:</i> thinking there's a manual Start button — it auto-starts.</li>
+<li><b>What is "progress" in rep counting?</b><br/>The joint angle normalized to 0 (top) → 1 (bottom). <i>Mistake:</i> confusing it with the user's training progress.</li>
+<li><b>What's the difference between Beginner and Advanced mode?</b><br/>Required depth eases +12° for beginners, tightens −6° for advanced; advanced also rejects bad-form reps. <i>Mistake:</i> thinking modes only change UI.</li>
+<li><b>How does voice coaching work?</b><br/>The Web Speech API speaks counts/cues in a simple-English persona, throttled to avoid spam. <i>Mistake:</i> expecting it to be recorded into the video (browsers can't capture system TTS).</li>
+<li><b>What is body-lock?</b><br/>Locking the rep count onto one person so passers-by don't hijack it. <i>Mistake:</i> assuming multi-person means it counts everyone.</li>
+<li><b>What does the dashboard show?</b><br/>Streak, volume, weekly chart, history — aggregated from saved sessions. <i>Mistake:</i> thinking it computes live during a workout.</li>
+<li><b>How is the app deployed?</b><br/>GitHub push to main → Render auto-builds (<code>prisma generate</code> + <code>next build</code>) → live HTTPS. <i>Mistake:</i> forgetting the Prisma generate step.</li>
+<li><b>Why Tailwind CSS?</b><br/>Fast, consistent styling with a custom dark-luxury theme. <i>Mistake:</i> thinking it bloats the bundle — unused classes are purged.</li>
+<li><b>What runs per frame?</b><br/>Capture → detect → lock → filter → smooth → angle → rep → form → voice → draw, ~30×/sec. <i>Mistake:</i> putting DB writes in the loop (only at set/session end).</li>
+<li><b>Is the exercise auto-detected?</b><br/>No — the user picks it, and we load that exercise's tuning config. <i>Mistake:</i> claiming an ML classifier picks the exercise.</li>
+</ol>
+
+<h2>Intermediate (31–65)</h2>
+<ol class="qlist" start="31">
+<li><b>Explain the rep state machine.</b><br/>Two phases (UP/DOWN). UP→DOWN when progress exceeds ENTER and rises past the valley+TURN; in DOWN we track the peak; when progress drops below peak−TURN the rep is evaluated. <i>Mistake:</i> describing it as a simple threshold cross (that double-counts on jitter).</li>
+<li><b>Why count on turnaround instead of lockout?</b><br/>Gym testing showed lockout-based counting only fired when the user paused; turnaround counts mid-motion and handles heavy grind reps. <i>Mistake:</i> not citing the real-world failure that motivated it.</li>
+<li><b>How do you prevent jitter double-counts?</b><br/>One-Euro smoothing + a TURN reversal band + MIN_REP_PEAK depth gate. <i>Mistake:</i> relying on smoothing alone.</li>
+<li><b>Give the One-Euro formula.</b><br/>α = 1/(1 + τ/Δt), τ = 1/(2π f_c); estimate speed êx, set f_c = minCutoff + β·|êx|, then x̂ = α·x + (1−α)·x̂_prev. <i>Mistake:</i> forgetting the cutoff adapts to speed.</li>
+<li><b>Why is One-Euro FPS-independent?</b><br/>It uses real Δt timestamps, so behavior is the same at 24 or 60 FPS. <i>Mistake:</i> assuming a fixed per-frame coefficient.</li>
+<li><b>What are minCutoff and beta?</b><br/>minCutoff = baseline smoothing when still; beta = how much smoothing relaxes with speed. <i>Mistake:</i> swapping their roles.</li>
+<li><b>How is a joint angle computed?</b><br/>Dot product of the two vectors from the middle joint: θ = arccos((BA·BC)/(|BA||BC|)). <i>Mistake:</i> forgetting to clamp cos to [−1,1] (NaN risk).</li>
+<li><b>How is range of motion (ROM) scored?</b><br/>peak progress ÷ idealProgress, clamped, ×100. <i>Mistake:</i> using the required (mode) depth instead of the ideal angle.</li>
+<li><b>How is stability scored?</b><br/>1 − (hip-sway range ÷ torso length) × 1.2, clamped, ×100. <i>Mistake:</i> measuring absolute pixels without normalizing by torso (breaks across distances).</li>
+<li><b>How is form scored?</b><br/>100 − errors×30 − warns×12, floored at 0. <i>Mistake:</i> treating warnings and errors the same.</li>
+<li><b>How do you avoid false form alarms?</b><br/>Three gates: view match, confidence ≥ HIGH_CONF, and persistence for SUSTAIN (6) frames. <i>Mistake:</i> firing a cue on a single bad frame.</li>
+<li><b>What is the confidence gate's effect on faults?</b><br/>A low-confidence "error" is demoted to a "warning" so it won't reject a rep. <i>Mistake:</i> letting an unsure model reject valid reps.</li>
+<li><b>How does the overhead-press false-rep fix work?</b><br/>requireWristAboveShoulder: a straight elbow only counts as worked if the wrist is above the shoulder, so arms-at-sides isn't a rep. <i>Mistake:</i> relying on elbow angle alone.</li>
+<li><b>How does mode change required depth?</b><br/>An ease term (±degrees) shifts the active angle before converting to required progress. <i>Mistake:</i> hard-coding one depth for everyone.</li>
+<li><b>How do you pick which body side to measure?</b><br/><code>bestSide</code> averages joint confidence per side and uses the more visible one. <i>Mistake:</i> always using the left side.</li>
+<li><b>What is orientation detection for?</b><br/>To know if the camera sees front or side, so form checks only run when valid. <i>Mistake:</i> running side-only checks on a front view.</li>
+<li><b>Why refs instead of state in the loop?</b><br/>Updating React state 30×/sec re-renders the tree and tanks FPS; refs avoid that. <i>Mistake:</i> putting the rep count in state and writing it every frame.</li>
+<li><b>How is the HUD kept cheap?</b><br/>Telemetry is throttled to every 200 ms and only shown in dev. <i>Mistake:</i> updating the HUD every frame.</li>
+<li><b>What is the hybrid 2D/3D pipeline?</b><br/><code>model-select.ts</code> picks BlazePose only for depth-sensitive compound lifts (<code>bench-press</code>, <code>row</code>, <code>shoulder-press</code>, <code>rdl</code>, <code>pull-down</code>) on capable devices; otherwise MoveNet 2D. In BlazePose mode it runs <b>Hybrid</b>: 2D keypoints track/lock the athlete while 3D world landmarks measure the joint angles (<code>angle3D</code>) for depth-invariant rep counting. The HUD's AI chip shows 2D / 3D / HYB. <i>Mistake:</i> saying 3D just adds a fault check — it now drives the rep-angle measurement; or using 3D everywhere (slower, single-person).</li>
+<li><b>How does device-tier fallback work?</b><br/>Static tier gates 3D; a runtime FPS EMA downgrades 3D→2D if FPS stays below a floor ~2.5 s (Auto only). <i>Mistake:</i> trusting the static check alone.</li>
+<li><b>Why does 3D mode weaken body-lock?</b><br/>BlazePose is single-person, so multi-person re-identification isn't available. <i>Mistake:</i> claiming 3D is strictly better.</li>
+<li><b>How are reps validated vs rejected?</b><br/>Reject if depth &lt; required (incomplete) or, in advanced, a sustained high-confidence error; else valid. <i>Mistake:</i> rejecting on any momentary fault.</li>
+<li><b>What's the occlusion-hold mechanism?</b><br/>If a joint's score &lt; 0.25, the smoother returns its last good position instead of a noisy jump. <i>Mistake:</i> letting an occluded joint snap to a wrong location.</li>
+<li><b>How is the workout recorded?</b><br/><code>canvas.captureStream()</code> → MediaRecorder, capturing the skeleton overlay too. <i>Mistake:</i> recording the raw video element without overlays.</li>
+<li><b>Why can't the voice be in the recording?</b><br/>Web speechSynthesis output isn't routed to a capturable media stream. <i>Mistake:</i> promising in-video voice on the web (needs native).</li>
+<li><b>How is input validated on the API?</b><br/>zod schemas parse every request body; invalid input is rejected before the DB. <i>Mistake:</i> trusting client data.</li>
+<li><b>How are SQL injections prevented?</b><br/>Prisma uses parameterized queries; we never build raw SQL strings. <i>Mistake:</i> concatenating user input into queries.</li>
+<li><b>How does Google OAuth work here?</b><br/>The Google ID token is verified server-side, then we mint our own JWT. <i>Mistake:</i> trusting the client-sent token without verification.</li>
+<li><b>What does <code>src/proxy.ts</code> do?</b><br/>Acts as Next 16 middleware: checks the JWT cookie and redirects unauthenticated users — enforcing mandatory login. <i>Mistake:</i> protecting only some pages.</li>
+<li><b>How is failure-set (reps-to-failure) handled?</b><br/>Same counting core; the user presses "Finish set" and we log the real reps achieved. <i>Mistake:</i> needing a preset target.</li>
+<li><b>How do you handle too-fast (momentum) reps?</b><br/>If &lt;450 ms since the last rep, cue "slow down, control it". <i>Mistake:</i> still scoring them as perfect.</li>
+<li><b>What's stored per workout session?</b><br/>Per-set reps, weight, ROM/form/stability/confidence scores, volume — for analytics and PRs. <i>Mistake:</i> storing only total reps.</li>
+<li><b>How does progressive overload tracking work?</b><br/>Weights per set are saved; history surfaces PRs and lets the rest screen suggest the next load. <i>Mistake:</i> ignoring per-set weight.</li>
+<li><b>Why canvas drawing over DOM for the skeleton?</b><br/>Canvas is GPU-composited and avoids layout thrash at 30 FPS. <i>Mistake:</i> drawing joints as DOM elements.</li>
+<li><b>What's the role of requestAnimationFrame?</b><br/>It drives the loop synced to the display and pauses on hidden tabs (battery). <i>Mistake:</i> using setInterval (drifts, runs in background).</li>
+</ol>
+</div>
+
+<div class="page">
+<h2>Advanced (66–100)</h2>
+<ol class="qlist" start="66">
+<li><b>Walk through the full per-frame pipeline.</b><br/>rAF tick → read video frame → model inference (GPU) → body-lock select person → confidence filter + occlusion hold → One-Euro smoothing → bestSide + joint angle → progress → rep state machine → form checks → voice → canvas draw → (dev) telemetry. <i>Mistake:</i> omitting body-lock or putting smoothing after the angle.</li>
+<li><b>Why a heuristic state machine instead of an ML rep classifier?</b><br/>It's interpretable, needs no training data, runs in O(1)/frame, and is tunable per exercise; an ML counter needs labeled data and adds latency. <i>Mistake:</i> assuming ML is automatically better.</li>
+<li><b>How would you reduce false reps further without 3D?</b><br/>Tighten TURN/MIN_REP_PEAK, add velocity-based rep validation, require minimum rep duration, and cross-check a secondary joint. <i>Mistake:</i> only increasing smoothing (adds lag, hides real turnarounds).</li>
+<li><b>Why is z in BlazePose only "estimated"?</b><br/>It's regressed from a single 2D image by a model trained on 3D data — an inference, not a measured depth (no stereo/ToF). <i>Mistake:</i> treating z as metric-accurate.</li>
+<li><b>Trade-offs of MoveNet Lightning vs Thunder?</b><br/>Lightning: faster, multi-person, slightly less accurate. Thunder: more accurate, slower, single-pose. We need speed + multi-person for body-lock, so Lightning. <i>Mistake:</i> picking accuracy without weighing FPS/lock.</li>
+<li><b>How does the FPS guard avoid oscillation (flapping)?</b><br/>It downgrades only after FPS stays below the floor for a sustained ~2.5 s window (EMA), and doesn't auto-upgrade mid-session. <i>Mistake:</i> switching engines on a single slow frame.</li>
+<li><b>What's the complexity of the whole per-frame pipeline?</b><br/>Dominated by the CNN inference (fixed cost for a fixed input); the rest is O(n) over ~17–33 landmarks, effectively constant. <i>Mistake:</i> claiming it scales with video resolution linearly in our code (the model fixes input size).</li>
+<li><b>How do you keep memory stable over a long session?</b><br/>Per-frame tensors are disposed by the detector, per-frame data lives in refs (no React garbage), and logs/history are capped (8000 / 200). <i>Mistake:</i> accumulating per-frame arrays in state.</li>
+<li><b>How would you add real exercise auto-classification later?</b><br/>Feed a window of normalized landmark sequences into a small temporal model (1D-CNN/LSTM/transformer) trained on labeled clips, with a confidence threshold + hysteresis before switching. <i>Mistake:</i> classifying per single frame (unstable).</li>
+<li><b>How is the dev tooling kept out of production?</b><br/>Gated by <code>NODE_ENV !== "production" || localStorage["forge:dev"]==="1"</code>; unlinked routes render "not available"; production forces Auto. <i>Mistake:</i> shipping a visible toggle.</li>
+<li><b>Why localStorage for dev telemetry instead of a DB table?</b><br/>Zero server cost, no production schema, no user-data exposure, instant. Trade-off: per-device, not synced. <i>Mistake:</i> adding a server table for dev-only data.</li>
+<li><b>How does the Compare feature help tuning?</b><br/>Side-by-side metrics for 2+ tagged sessions isolate one variable (2D vs 3D, device, angle, lighting, build) to see its effect on FPS/accuracy. <i>Mistake:</i> comparing runs where multiple variables changed.</li>
+<li><b>What's your strategy for handling occlusion from equipment?</b><br/>Confidence threshold to ignore, occlusion-hold to bridge brief gaps, bestSide to use the visible side, and camera-guide to position so key joints stay visible. <i>Mistake:</i> trusting a low-confidence joint.</li>
+<li><b>How do you measure inference cost live?</b><br/>Time the detect call, smooth it with an EMA, show it (and a sparkline) in the dev HUD; compare 2D vs 3D. <i>Mistake:</i> timing the whole frame (includes draw) and blaming the model.</li>
+<li><b>Why throttle voice cues?</b><br/>speechSynthesis queues; un-throttled cues overlap and annoy. We enforce ≥1.5 s gaps and dedupe per rep. <i>Mistake:</i> speaking every cue immediately.</li>
+<li><b>How do you guarantee audio unlocks on mobile?</b><br/>The first speech call must be inside a user gesture; we call <code>unlockVoice()</code> on Start/toggle and keep the engine alive. <i>Mistake:</i> trying to speak before any interaction (autoplay block).</li>
+<li><b>How would you support offline use?</b><br/>Cache the model + app shell in a service worker (carefully, given the stale-bundle bug), keep inference local, and queue session saves for later sync. <i>Mistake:</i> a naive SW that serves stale JS (we hit this).</li>
+<li><b>How do you handle the front-camera mirror in math?</b><br/>Front view is visually mirrored for UX, but we flip coordinates back so left/right joints and angles stay correct. <i>Mistake:</i> letting the mirror swap detected sides.</li>
+<li><b>What's the biggest accuracy limitation and how do you communicate it?</b><br/>2D can't see depth-only faults (back rounding, heel lift) from a bad angle; we report those conservatively (warn, not reject) and the guide pushes a side view. <i>Mistake:</i> over-claiming perfect form detection.</li>
+<li><b>How do you prevent a passer-by from stealing the count?</b><br/>Body-lock selects one person near the lock center and re-identifies them each frame; the user can tap to set/reset the target. <i>Mistake:</i> always counting the highest-confidence person.</li>
+<li><b>How would you scale the backend for many users?</b><br/>It's already light (no inference server); scale the stateless Next service horizontally, use Neon pooling/read replicas, add caching + rate limiting. <i>Mistake:</i> worrying about GPU scaling (there is none server-side).</li>
+<li><b>What are the costs of this architecture vs a server-AI one?</b><br/>Near-zero marginal compute cost (client does AI) → high gross margin; server-AI would need GPUs per concurrent user. <i>Mistake:</i> ignoring unit economics.</li>
+<li><b>How do you test the rep counter?</b><br/>Replay recorded landmark sequences through <code>RepCounter.update()</code> and assert counts/scores; tune thresholds against slow/fast/heavy/partial cases. <i>Mistake:</i> only manual gym testing (not reproducible).</li>
+<li><b>How is the camera-guide auto-start debounced?</b><br/>All checks must stay green for a sustained period before a countdown, so a momentary good frame doesn't trigger. <i>Mistake:</i> starting on the first all-green frame.</li>
+<li><b>Why EMA on top of One-Euro for the rep angle?</b><br/>A light secondary smoothing (SMOOTH 0.35) further steadies the single scalar driving the state machine. <i>Mistake:</i> over-smoothing and erasing the turnaround.</li>
+<li><b>How would you add injury-risk detection?</b><br/>Combine sustained high-severity faults (e.g. valgus, lumbar flexion under load) with fatigue trend + load, flag risk, and auto-reduce intensity suggestions. Best with 3D/side view. <i>Mistake:</i> flagging single frames as injury.</li>
+<li><b>How do you detect fatigue across a set?</b><br/>Trend ROM, rep tempo, and form scores over reps; a declining curve near the end signals fatigue (shown in the rest debrief). <i>Mistake:</i> using a single rep's score.</li>
+<li><b>What happens if the model fails to load?</b><br/>The hook enters an error state with a user-facing message; the loop doesn't start; we can retry/fallback engine. <i>Mistake:</i> a blank screen with no feedback.</li>
+<li><b>How do you keep the design system consistent?</b><br/>Tailwind v4 theme tokens in <code>globals.css</code> + reusable <code>ui/</code> primitives (Button asChild, Switch, ProgressRing). <i>Mistake:</i> ad-hoc inline styles per page.</li>
+<li><b>Why the <code>asChild</code>/Slot pattern on Button?</b><br/>To render a link styled as a button without invalid <code>&lt;a&gt;&lt;button&gt;</code> nesting (a real bug we fixed). <i>Mistake:</i> wrapping a button in an anchor.</li>
+<li><b>How would you A/B test smoothing params with real users?</b><br/>Bucket users, vary One-Euro params server-side flag, collect rep-accuracy/false-rate telemetry, compare — exactly what the dev Compare/Trends prototype anticipates. <i>Mistake:</i> changing params globally with no measurement.</li>
+<li><b>What's the data flow from a finished set to the chart?</b><br/>RepCounter.summary() → set entry → POST /api/sessions → Prisma → PostgreSQL → dashboard query → Recharts. <i>Mistake:</i> computing charts on the client from in-memory state only.</li>
+<li><b>How do you handle a dropped/loose tracking mid-rep?</b><br/>Frames with sub-threshold joints are skipped (tracking=false), no phantom rep; a tracking-loss event is logged; the rep resumes when tracking returns. <i>Mistake:</i> counting through the gap.</li>
+<li><b>What would break first under poor lighting, and your mitigation?</b><br/>Landmark confidence drops → reps gate out and faults demote to warnings; the guide warns and asks for better light. <i>Mistake:</i> letting low-confidence data drive counts.</li>
+<li><b>If you had to ship one accuracy upgrade next, what and why?</b><br/>Velocity-aware rep validation + a proper offline replay test harness — biggest reduction in false/missed reps with no UX cost, and it makes tuning measurable. <i>Mistake:</i> jumping to 3D-everywhere (cost/lock regressions) before exhausting cheap 2D wins.</li>
+</ol>
+</div>
+
+<!-- ===================== CH22 ===================== -->
+<div class="page">
+<h1 id="ch22">22. 100 Viva Questions &amp; Answers</h1>
+<p>Short, exam-style Q&amp;A for college presentations and vivas.</p>
+<ol class="qlist">
+<li><b>What is the project's full name?</b> FORGE — an AI fitness trainer web app.</li>
+<li><b>What is its one-line purpose?</b> Watch you through the camera and coach your workout in real time.</li>
+<li><b>Name the core feature.</b> The AI Camera Trainer (pose-based rep counting + form coaching).</li>
+<li><b>What language is the codebase in?</b> TypeScript.</li>
+<li><b>Which framework?</b> Next.js 16 (App Router) with React 19.</li>
+<li><b>Which AI library?</b> TensorFlow.js.</li>
+<li><b>Default pose model?</b> MoveNet MULTIPOSE_LIGHTNING.</li>
+<li><b>3D pose model?</b> BlazePose (tfjs runtime).</li>
+<li><b>How many 2D landmarks?</b> 17.</li>
+<li><b>How many 3D landmarks?</b> 33.</li>
+<li><b>Where does inference run?</b> In the browser, on the device GPU.</li>
+<li><b>Why on-device?</b> Low latency, low cost, privacy.</li>
+<li><b>Database used?</b> PostgreSQL (Neon).</li>
+<li><b>ORM used?</b> Prisma.</li>
+<li><b>Auth method?</b> JWT in an HTTP-only cookie + bcrypt passwords.</li>
+<li><b>What is a landmark?</b> A detected body joint with (x, y) and a confidence score.</li>
+<li><b>What is a confidence score?</b> The model's certainty (0–1) about a joint's location.</li>
+<li><b>How is a joint angle measured?</b> Dot product of the two vectors at the middle joint.</li>
+<li><b>What is "progress"?</b> The joint angle normalized to 0 (top) → 1 (bottom).</li>
+<li><b>How is a rep counted?</b> On the bottom turnaround after reaching valid depth.</li>
+<li><b>What is the One-Euro filter?</b> An adaptive low-pass filter that removes jitter without lag.</li>
+<li><b>Why use it?</b> Stable angles → accurate reps and form scores.</li>
+<li><b>Is it FPS-independent?</b> Yes — it uses real timestamps (Δt).</li>
+<li><b>Name its main parameters.</b> minCutoff, beta, dCutoff.</li>
+<li><b>What does minCutoff control?</b> Baseline smoothing when nearly still.</li>
+<li><b>What does beta control?</b> How much smoothing relaxes with speed.</li>
+<li><b>What is occlusion hold?</b> Freezing a low-confidence joint at its last good position.</li>
+<li><b>What is body-lock?</b> Tracking one person so others don't affect the count.</li>
+<li><b>What is the rep state machine's two phases?</b> UP and DOWN.</li>
+<li><b>What confirms a direction change?</b> A reversal past the TURN band (0.1).</li>
+<li><b>What is MIN_REP_PEAK for?</b> Ignoring shallow fidget movements (must reach 0.5).</li>
+<li><b>How is ROM scored?</b> peak ÷ ideal progress × 100.</li>
+<li><b>How is stability scored?</b> 1 − (hip sway ÷ torso length) × 1.2, ×100.</li>
+<li><b>How is form scored?</b> 100 − errors×30 − warns×12.</li>
+<li><b>When is a rep "perfect"?</b> ROM ≥ 90, form ≥ 85, stability ≥ 80.</li>
+<li><b>When is a rep rejected?</b> Too shallow, or (advanced) a sustained confident form error.</li>
+<li><b>How many frames must a fault persist?</b> 6 (SUSTAIN).</li>
+<li><b>What are the three form gates?</b> View match, confidence, persistence.</li>
+<li><b>What is HIGH_CONF?</b> 0.5 — needed for an error to reject a rep.</li>
+<li><b>How does Beginner mode differ?</b> Depth target eased by +12°.</li>
+<li><b>How does Advanced mode differ?</b> Stricter depth (−6°) and rejects bad-form reps.</li>
+<li><b>How is the exercise chosen?</b> The user selects it; we load its config (no auto-classification).</li>
+<li><b>What is poseKey?</b> The key linking an exercise to its rep configuration.</li>
+<li><b>Name a config family.</b> squatLike (hip-knee-ankle, 160→100→70°).</li>
+<li><b>What special gate do presses use?</b> requireWristAboveShoulder.</li>
+<li><b>Why that gate?</b> So arms-at-sides (straight elbow) aren't counted as a rep.</li>
+<li><b>What does the camera guide check?</b> Visibility, angle, framing, lighting.</li>
+<li><b>What happens when checks pass?</b> The set auto-starts (countdown), no Start button.</li>
+<li><b>Best camera angle for squats?</b> Side-on (to see depth).</li>
+<li><b>Why front camera is mirrored?</b> So it feels like a mirror (coords are un-mirrored in math).</li>
+</ol>
+</div>
+
+<div class="page">
+<ol class="qlist" start="51">
+<li><b>What is requestAnimationFrame?</b> A browser callback that drives the loop in sync with the display.</li>
+<li><b>Why not setInterval?</b> It drifts and runs in background tabs; rAF pauses when hidden.</li>
+<li><b>Why refs not state in the loop?</b> To avoid re-rendering 30×/sec and tanking FPS.</li>
+<li><b>How often is the dev HUD updated?</b> Throttled to every 200 ms.</li>
+<li><b>What backend runs inference?</b> None — it's all client-side.</li>
+<li><b>What is a Server Component?</b> A component rendered on the server with no client JS.</li>
+<li><b>Why is the trainer a separate full-screen route?</b> To show only camera + minimal overlays.</li>
+<li><b>What protects the routes?</b> <code>src/proxy.ts</code> (Next 16 middleware) checking the JWT cookie.</li>
+<li><b>Which API saves a workout?</b> POST <code>/api/sessions</code>.</li>
+<li><b>What validates API input?</b> zod schemas.</li>
+<li><b>How are passwords stored?</b> bcrypt-hashed (salted), never plaintext.</li>
+<li><b>Why HTTP-only cookies?</b> JavaScript can't read them (XSS-safe).</li>
+<li><b>How is Google login verified?</b> Server-side token verification, then our own JWT.</li>
+<li><b>Where are videos stored?</b> On the device (local save / share).</li>
+<li><b>How is the workout recorded?</b> canvas.captureStream → MediaRecorder.</li>
+<li><b>Can the voice be in the recording?</b> No — web TTS can't be captured.</li>
+<li><b>What API speaks cues?</b> Web Speech (speechSynthesis).</li>
+<li><b>Why throttle cues?</b> To avoid overlapping, spammy speech.</li>
+<li><b>What unlocks audio on mobile?</b> A user gesture (Start/toggle) calling unlockVoice().</li>
+<li><b>What is the hybrid pipeline?</b> Choosing 2D vs 3D by exercise and device.</li>
+<li><b>What is device-tier?</b> Classifying the device as low/mid/high.</li>
+<li><b>What is the FPS fallback?</b> Auto-downgrading 3D→2D if FPS stays too low.</li>
+<li><b>Why does 3D weaken body-lock?</b> BlazePose is single-person.</li>
+<li><b>What does z represent?</b> Estimated depth (not measured).</li>
+<li><b>Which model is multi-person?</b> MoveNet.</li>
+<li><b>Why MoveNet Lightning over Thunder?</b> Faster + multi-person for body-lock.</li>
+<li><b>What is bestSide?</b> Choosing the more confidently tracked body side.</li>
+<li><b>What is orientation detection?</b> Detecting front vs side camera view.</li>
+<li><b>Why does orientation matter?</b> Form checks only run on a valid view.</li>
+<li><b>What is the stability metric based on?</b> Hip sway normalized by torso length.</li>
+<li><b>What is a hold exercise?</b> A timed posture (e.g. plank) scored on body line.</li>
+<li><b>What is the generic counter?</b> A hip-drop fallback counter for untuned moves.</li>
+<li><b>What is the failure-set mode?</b> Reps-to-failure; user finishes the set manually.</li>
+<li><b>What is progressive overload?</b> Increasing weight over time, tracked per set.</li>
+<li><b>What does the rest screen show?</b> A per-set debrief + next-set weight suggestion.</li>
+<li><b>What does the session report show?</b> Scores, video, PRs, save/export.</li>
+<li><b>What charts library is used?</b> Recharts.</li>
+<li><b>What animation library?</b> Framer Motion.</li>
+<li><b>What CSS framework?</b> Tailwind CSS v4.</li>
+<li><b>How many exercises are catalogued?</b> 120 (≈77 AI-tracked).</li>
+<li><b>Where is exercise data seeded from?</b> <code>prisma/data/exercises.ts</code>.</li>
+<li><b>What is Developer Mode?</b> A hidden toolkit for tuning the AI.</li>
+<li><b>How is it unlocked?</b> <code>?unlock=forge</code> (persisted) or dev builds.</li>
+<li><b>Name two dev tools.</b> Live HUD and Session History dashboard.</li>
+<li><b>Where is dev telemetry stored?</b> localStorage (device-local).</li>
+<li><b>What does Compare do?</b> Side-by-side metrics for multiple sessions.</li>
+<li><b>What does Trends show?</b> FPS/inference/accuracy over time + top-error exercises.</li>
+<li><b>Where is the app deployed?</b> Render (auto-deploy from GitHub main).</li>
+<li><b>What is the build command?</b> prisma generate + next build.</li>
+<li><b>What's the biggest limitation?</b> 2D can't see depth-only faults from a bad angle — mitigated by camera guidance and conservative warnings.</li>
+</ol>
+</div>
+
+<!-- ===================== CH23 ===================== -->
+<div class="page">
+<h1 id="ch23">23. Future Improvements</h1>
+<table>
+<tr><th>Idea</th><th>What it adds</th><th>How it could be built</th></tr>
+<tr><td><b>AI workout recommendations</b></td><td>Suggest the next workout from history/goals</td><td>Rules + later a recommender over session data</td></tr>
+<tr><td><b>Personalized training plans</b></td><td>Adaptive multi-week programs</td><td>Progression model using volume/PR trends</td></tr>
+<tr><td><b>Fatigue detection</b></td><td>Auto-stop/deload when form decays</td><td>Trend ROM/tempo/form across reps (prototype already in rest debrief)</td></tr>
+<tr><td><b>Injury-risk detection</b></td><td>Flag dangerous patterns (valgus, lumbar flexion)</td><td>3D/side-view + sustained high-severity faults + load</td></tr>
+<tr><td><b>Nutrition integration</b></td><td>Calories/macros alongside training</td><td>Food DB + goal-based targets</td></tr>
+<tr><td><b>Wearable integration</b></td><td>Heart rate, real calories, recovery</td><td>Web Bluetooth / Health APIs</td></tr>
+<tr><td><b>Cloud analytics</b></td><td>Cross-device history + dashboards</td><td>Authenticated dev/user telemetry tables</td></tr>
+<tr><td><b>LLM-powered coaching</b></td><td>Natural-language plans &amp; explanations</td><td>Claude API summarizing session data into advice</td></tr>
+<tr><td><b>Voice conversations</b></td><td>Ask the coach questions hands-free</td><td>Speech-to-text + LLM + TTS loop</td></tr>
+<tr><td><b>Smartwatch support</b></td><td>Glanceable reps/rest on the wrist</td><td>Companion watch app</td></tr>
+<tr><td><b>Native Android (Capacitor)</b></td><td>True gallery save + voice baked into recordings</td><td>Wrap the web app; use native media APIs</td></tr>
+<tr><td><b>Auto exercise classification</b></td><td>Remove the "pick exercise" step</td><td>Temporal model (1D-CNN/LSTM) over landmark sequences</td></tr>
+<tr><td><b>Automated test harness</b></td><td>Reproducible rep-accuracy regression tests</td><td>Replay recorded landmark sequences through RepCounter</td></tr>
+</table>
+</div>
+
+<!-- ===================== CH24 ===================== -->
+<div class="page">
+<h1 id="ch24">24. Final Summary</h1>
+
+<h3>Key takeaways</h3>
+<ul>
+  <li>FORGE is a <b>client-heavy, on-device AI</b> fitness coach: the browser does pose detection, rep counting, form analysis, and voice; the server only stores structured data.</li>
+  <li>That single choice drives everything good about it: <b>low latency, low cost, strong privacy</b>.</li>
+  <li>The AI is built from <b>interpretable, tunable algorithms</b> (state machine + geometry + One-Euro), not a black box — which makes it debuggable and reliable.</li>
+  <li>Robustness comes from layered defenses: confidence gates, persistence gates, body-lock, occlusion-hold, and a runtime FPS fallback.</li>
+</ul>
+
+<h3>Technologies used</h3>
+<p><span class="tag">Next.js 16</span><span class="tag">React 19</span><span class="tag">TypeScript</span><span class="tag">Tailwind v4</span><span class="tag">Framer Motion</span><span class="tag">Recharts</span><span class="tag">TensorFlow.js (WebGL)</span><span class="tag">Prisma</span><span class="tag">PostgreSQL (Neon)</span><span class="tag">jose JWT</span><span class="tag">bcryptjs</span><span class="tag">zod</span><span class="tag">Web Speech API</span><span class="tag">MediaRecorder</span><span class="tag">getUserMedia</span><span class="tag">Render</span></p>
+
+<h3>AI models used</h3>
+<p><span class="tag">MoveNet MULTIPOSE_LIGHTNING (2D)</span><span class="tag">BlazePose (3D)</span><span class="tag">Web speechSynthesis (TTS)</span></p>
+
+<h3>Algorithms used</h3>
+<p><span class="tag">CNN pose estimation</span><span class="tag">One-Euro filter</span><span class="tag">Bottom-turnaround state machine</span><span class="tag">Dot-product joint angles</span><span class="tag">EMA smoothing</span><span class="tag">Occlusion hold</span><span class="tag">Body-lock tracking</span><span class="tag">Device-tier + FPS fallback</span><span class="tag">Hybrid 2D/3D selection</span><span class="tag">Confidence filtering</span><span class="tag">Run-length form gating</span><span class="tag">Sway stability metric</span><span class="tag">Orientation detection</span><span class="tag">canvas→MediaRecorder encoding</span></p>
+
+<h3>System architecture summary</h3>
+<pre class="diagram">
+DEVICE (browser)                          CLOUD
+─────────────────                         ─────────────
+Camera → TF.js pose → AI logic            Next.js API (auth, sessions)
+  → rep count + form + voice                     │
+  → canvas draw + record            POST/GET JSON │
+  → session scores  ───────────────────────────► PostgreSQL (Prisma/Neon)
+Dashboard/charts ◄──────────── aggregated queries ┘
+(Dev telemetry stays in localStorage — never sent)
+</pre>
+
+<h3>Learning outcomes</h3>
+<ul>
+  <li>Real-time computer vision in the browser (TF.js, WebGL, pose estimation).</li>
+  <li>Signal processing for noisy sensor data (One-Euro, EMA, gating).</li>
+  <li>Designing interpretable algorithms (state machines, geometry) over ML black boxes.</li>
+  <li>Full-stack engineering: typed APIs, relational data, secure auth, deployment.</li>
+  <li>Performance engineering for a 30 FPS real-time loop (refs, canvas, adaptive models).</li>
+  <li>Product thinking: honest limitations, privacy-by-design, and hidden developer tooling.</li>
+</ul>
+
+<p class="muted" style="margin-top:30px;text-align:center;">— End of document · FORGE AI Trainer · forge-ai-1.1 —</p>
+</div>
+
+</body>
+</html>
