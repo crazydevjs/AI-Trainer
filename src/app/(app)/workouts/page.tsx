@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Dumbbell, Layers, Plus } from "lucide-react";
+import { Dumbbell, Layers, Play, Plus } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -32,12 +32,20 @@ export default async function WorkoutsPage() {
             Build custom routines or start from a proven program template.
           </p>
         </div>
-        <Button asChild>
-          <Link href="/workouts/new">
-            <Plus className="h-5 w-5" />
-            New workout
-          </Link>
-        </Button>
+        <div className="flex gap-3">
+          <Button asChild variant="outline">
+            <Link href="/workouts/new">
+              <Plus className="h-5 w-5" />
+              New template
+            </Link>
+          </Button>
+          <Button asChild>
+            <Link href="/workout">
+              <Play className="h-5 w-5" />
+              Start workout
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {/* Saved workouts */}

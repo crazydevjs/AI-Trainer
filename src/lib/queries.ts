@@ -27,6 +27,26 @@ export const getLibraryExercises = unstable_cache(
   { revalidate: 3600, tags: ["exercises"] }
 );
 
+/** Exercises for the live Workout Session builder — includes AI capability. */
+export const getSessionExercises = unstable_cache(
+  async () =>
+    prisma.exercise.findMany({
+      orderBy: { name: "asc" },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        category: true,
+        muscles: true,
+        equipment: true,
+        aiRepCount: true,
+        poseKey: true,
+      },
+    }),
+  ["session-exercises"],
+  { revalidate: 3600, tags: ["exercises"] }
+);
+
 export const getPickerExercises = unstable_cache(
   async () =>
     prisma.exercise.findMany({

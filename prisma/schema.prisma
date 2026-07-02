@@ -43,6 +43,7 @@ model User {
   profile         Profile?
   plan            WorkoutPlan?
   sessions        WorkoutSession[]
+  workoutLogs     WorkoutLog[]
   progress        ProgressEntry[]
   records         PersonalRecord[]
   achievements    UserAchievement[]
@@ -325,12 +326,44 @@ model CustomWorkoutExercise {
 // WORKOUT SESSIONS & ANALYSIS
 // ============================================================
 
+// A complete gym session (the user's training-log entry): one titled workout
+// containing many exercises. Child per-exercise data lives in WorkoutSession.
+model WorkoutLog {
+  id             String           @id @default(cuid())
+  userId         String
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title          String
+  description    String?
+
+  startedAt      DateTime         @default(now())
+  endedAt        DateTime?
+  durationSec    Int              @default(0)
+
+  totalExercises Int              @default(0)
+  totalSets      Int              @default(0)
+  totalReps      Int              @default(0)
+  totalVolumeKg  Float            @default(0)
+  prCount        Int              @default(0)
+
+  // AI coach post-workout observation (rendered in summary + share card)
+  summary        String?
+
+  exercises      WorkoutSession[]
+
+  @@index([userId, startedAt])
+}
+
 model WorkoutSession {
   id            String       @id @default(cuid())
   userId        String
   user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   exerciseId    String
   exercise      Exercise     @relation(fields: [exerciseId], references: [id])
+
+  // parent gym session (null for legacy single-exercise AI sessions)
+  workoutLogId  String?
+  workoutLog    WorkoutLog?  @relation(fields: [workoutLogId], references: [id], onDelete: Cascade)
 
   targetSets    Int
   targetReps    Int
@@ -354,6 +387,7 @@ model WorkoutSession {
   sets          SessionSet[]
 
   @@index([userId, startedAt])
+  @@index([workoutLogId])
 }
 
 model SessionSet {

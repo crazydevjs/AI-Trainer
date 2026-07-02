@@ -4,9 +4,10 @@ A premium, AI-powered fitness trainer web app with a dark luxury gym aesthetic.
 Real-time form correction, automatic rep counting, personalized plans, and a
 cinematic command-center dashboard.
 
-> **Status:** Milestone 1 shipped — Foundation, Authentication & Onboarding.
-> The AI Camera Trainer, live sessions, progress analytics, and gamification are
-> on the roadmap below.
+> **Status:** Milestones 1–4 shipped — Foundation & Auth, Exercise Database &
+> Workout Creator, AI Camera Trainer, and the Workout Session System (live gym
+> sessions, training log, shareable summary cards). Progress analytics and
+> gamification are next on the roadmap below.
 
 ---
 
@@ -158,15 +159,20 @@ Defined in [`prisma/schema.prisma`](prisma/schema.prisma):
 1. ✅ **Foundation · Auth · Onboarding**
 2. ✅ **Exercise Database & Workout Creator** — 120 exercises, equipment catalog,
    filters/AI badges, custom workouts + program templates.
-3. ✅ **AI Camera Trainer** — full-screen MoveNet pose detection, automatic rep
-   counting, range-of-motion + posture scoring, real-time voice coaching, rest
-   timers, and a post-session report (score /10, form/tempo/ROM, calories, XP).
-   Routes: `/train/[slug]` (immersive, no chrome) + `POST /api/sessions`.
-4. **Progress analytics** — weight & strength graphs, PRs, monthly reports.
-4. **Progress analytics** — weight & strength graphs, PRs, monthly reports.
-5. **Gamification** — XP, levels, streaks, badges, achievements.
-6. **Notifications** — workout/water reminders, motivation, recovery alerts.
-7. **Admin panel** — user/exercise management, AI reports, platform analytics.
+3. ✅ **AI Camera Trainer** — full-screen MoveNet/BlazePose hybrid pose detection,
+   automatic rep counting, range-of-motion + posture scoring, real-time voice
+   coaching, rest timers, and a post-session report (score /10, form/tempo/ROM,
+   calories, XP). Routes: `/train/[slug]` (immersive, no chrome) + `POST /api/sessions`.
+4. ✅ **Workout Session System** — plan a full titled gym session (per-set
+   weight × reps), track it live (elapsed time, volume, rest timers, optional
+   embedded AI rep counting per exercise — never mandatory), auto-save drafts to
+   localStorage, PR detection + XP on finish, AI coach summary, an
+   Instagram-story shareable card, and a complete training log under
+   `/profile/history`. Routes: `/workout` + `POST /api/workout-logs`.
+5. **Progress analytics** — weight & strength graphs, PRs, monthly reports.
+6. **Gamification** — XP, levels, streaks, badges, achievements.
+7. **Notifications** — workout/water reminders, motivation, recovery alerts.
+8. **Admin panel** — user/exercise management, AI reports, platform analytics.
 
 ---
 

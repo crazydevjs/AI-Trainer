@@ -104,6 +104,38 @@ export const sessionSchema = z.object({
     .default([]),
 });
 
+// Full gym session (Workout Session System): title + many exercises, each with
+// per-set weight × reps as actually performed. AI scores are optional — sets
+// completed manually simply carry no scores.
+export const workoutLogSchema = z.object({
+  title: z.string().min(1, "Give your workout a title").max(80),
+  description: z.string().max(500).optional(),
+  summary: z.string().max(600).optional(), // AI coach observation
+  startedAt: z.coerce.number().int().positive(), // epoch ms
+  durationSec: z.coerce.number().int().min(0).max(86400),
+  exercises: z
+    .array(
+      z.object({
+        exerciseId: z.string().min(1),
+        order: z.coerce.number().int().min(0).default(0),
+        sets: z
+          .array(
+            z.object({
+              setNumber: z.coerce.number().int().min(1),
+              reps: z.coerce.number().int().min(0).max(500),
+              weightKg: z.coerce.number().min(0).max(1000).optional(),
+              aiTracked: z.boolean().optional(),
+              formScore: z.coerce.number().min(0).max(100).optional(),
+              romScore: z.coerce.number().min(0).max(100).optional(),
+            })
+          )
+          .min(1),
+      })
+    )
+    .min(1, "Log at least one exercise"),
+});
+
+export type WorkoutLogInput = z.infer<typeof workoutLogSchema>;
 export type SessionInput = z.infer<typeof sessionSchema>;
 export type SignupInput = z.infer<typeof signupSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;

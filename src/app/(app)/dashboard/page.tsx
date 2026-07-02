@@ -84,9 +84,9 @@ export default async function DashboardPage() {
           </h1>
         </div>
         <Button asChild size="lg">
-          <Link href="/exercises">
+          <Link href="/workout">
             <Dumbbell className="h-5 w-5" />
-            Start a workout
+            Start workout
           </Link>
         </Button>
       </div>

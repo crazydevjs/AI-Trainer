@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { ChevronRight, History } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { ProgressRing } from "@/components/ui/progress-ring";
 
@@ -63,6 +65,25 @@ export default async function ProfilePage() {
           </div>
         </div>
       </div>
+
+      {/* Training log */}
+      <Link
+        href="/profile/history"
+        className="glass group flex items-center justify-between rounded-3xl p-5 transition-all hover:border-ember/30"
+      >
+        <div className="flex items-center gap-3">
+          <div className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-ember/30 to-flame/20">
+            <History className="h-5 w-5 text-ember" />
+          </div>
+          <div>
+            <p className="font-display font-semibold uppercase tracking-wide text-chalk">
+              Workout History
+            </p>
+            <p className="text-xs text-fog">Your complete training log — every session &amp; set</p>
+          </div>
+        </div>
+        <ChevronRight className="h-5 w-5 text-smoke transition-transform group-hover:translate-x-0.5" />
+      </Link>
 
       {p ? (
         <>
