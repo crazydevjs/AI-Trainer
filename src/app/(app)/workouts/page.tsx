@@ -3,6 +3,7 @@ import { Dumbbell, Layers, Play, Plus } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { WorkoutActions } from "@/components/workouts/workout-actions";
 import { PROGRAM_TEMPLATES } from "@/lib/programs";
 
@@ -54,13 +55,11 @@ export default async function WorkoutsPage() {
           Saved
         </h2>
         {workouts.length === 0 ? (
-          <div className="glass rounded-3xl p-10 text-center">
-            <Dumbbell className="mx-auto mb-3 h-8 w-8 text-smoke" />
-            <p className="text-fog">No saved workouts yet.</p>
-            <Button asChild variant="outline" className="mt-4">
-              <Link href="/workouts/new">Build your first</Link>
-            </Button>
-          </div>
+          <EmptyState
+            icon={Dumbbell}
+            title="No saved workouts yet."
+            action={{ label: "Build your first", href: "/workouts/new" }}
+          />
         ) : (
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {workouts.map((w) => (

@@ -48,6 +48,7 @@ export function ExercisePicker({
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-smoke" />
           <input
             autoFocus
+            aria-label="Search exercises, muscles"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search exercises, muscles…"

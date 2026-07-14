@@ -3,6 +3,7 @@ import { ChevronRight, Dumbbell, Plus, Trophy } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { fmtDuration, fmtVolume } from "@/lib/workout-session";
 
 export const dynamic = "force-dynamic";
@@ -42,13 +43,11 @@ export default async function WorkoutHistoryPage() {
       </div>
 
       {logs.length === 0 ? (
-        <div className="glass rounded-3xl p-12 text-center">
-          <Dumbbell className="mx-auto mb-3 h-8 w-8 text-smoke" />
-          <p className="text-fog">No workouts logged yet.</p>
-          <Button asChild variant="outline" className="mt-4">
-            <Link href="/workout">Start your first session</Link>
-          </Button>
-        </div>
+        <EmptyState
+          icon={Dumbbell}
+          title="No workouts logged yet."
+          action={{ label: "Start your first session", href: "/workout" }}
+        />
       ) : (
         <div className="space-y-4">
           {logs.map((log) => {

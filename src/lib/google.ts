@@ -4,6 +4,7 @@ import { OAuth2Client } from "google-auth-library";
 const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
 export const GOOGLE_REDIRECT_URI = `${appUrl}/api/auth/google/callback`;
+export const GOOGLE_OAUTH_STATE_COOKIE = "google_oauth_state";
 
 export function googleConfigured() {
   return Boolean(

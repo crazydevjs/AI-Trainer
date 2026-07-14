@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { ChevronRight, History } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { ProgressRing } from "@/components/ui/progress-ring";
@@ -44,8 +45,13 @@ export default async function ProfilePage() {
       <div className="glass-strong flex flex-col items-center gap-4 rounded-3xl p-8 sm:flex-row sm:items-center">
         <div className="grid h-20 w-20 place-items-center overflow-hidden rounded-2xl bg-gradient-to-br from-ember to-flame text-2xl font-bold text-white">
           {user.image ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={user.image} alt="" className="h-full w-full object-cover" />
+            <Image
+              src={user.image}
+              alt={`${user.name ?? "Your"} profile picture`}
+              width={80}
+              height={80}
+              className="h-full w-full object-cover"
+            />
           ) : (
             (user.name?.[0] ?? user.email[0]).toUpperCase()
           )}

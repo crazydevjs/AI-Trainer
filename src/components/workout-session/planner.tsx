@@ -80,10 +80,11 @@ export function WorkoutPlanner({
       {/* Title + description */}
       <div className="glass mt-6 space-y-4 rounded-3xl p-6">
         <div>
-          <label className="mb-2 block text-xs uppercase tracking-widest text-smoke">
+          <label htmlFor="workout-title" className="mb-2 block text-xs uppercase tracking-widest text-smoke">
             Workout title
           </label>
           <input
+            id="workout-title"
             value={draft.title}
             onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
             placeholder="Push Day, Chest & Triceps…"
@@ -104,10 +105,11 @@ export function WorkoutPlanner({
           </div>
         </div>
         <div>
-          <label className="mb-2 block text-xs uppercase tracking-widest text-smoke">
+          <label htmlFor="workout-description" className="mb-2 block text-xs uppercase tracking-widest text-smoke">
             Description <span className="normal-case text-smoke/70">(optional)</span>
           </label>
           <textarea
+            id="workout-description"
             value={draft.description}
             onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
             placeholder="Testing new PR · Deload week · Heavy bench focus…"

@@ -3,8 +3,19 @@ import { prisma } from "@/lib/prisma";
 import { forgotSchema } from "@/lib/validators";
 import { createToken } from "@/lib/tokens";
 import { sendResetEmail } from "@/lib/email";
+import { rateLimit, RATE_LIMIT_PRESETS } from "@/lib/platform/rate-limiter";
+
+function clientIp(req: Request): string {
+  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+}
 
 export async function POST(req: Request) {
+  const ip = clientIp(req);
+  const rl = rateLimit("auth:forgot-password", ip, RATE_LIMIT_PRESETS.auth);
+  if (!rl.allowed) {
+    return NextResponse.json({ error: "Too many attempts — try again shortly" }, { status: 429 });
+  }
+
   try {
     const parsed = forgotSchema.safeParse(await req.json());
     if (!parsed.success) {

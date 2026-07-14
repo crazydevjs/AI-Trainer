@@ -78,7 +78,7 @@ export default function SignupPage() {
             {...register("name")}
           />
           {errors.name && (
-            <p className="mt-1 text-xs text-ember">{errors.name.message}</p>
+            <p role="alert" className="mt-1 text-xs text-ember">{errors.name.message}</p>
           )}
         </div>
 
@@ -92,7 +92,7 @@ export default function SignupPage() {
             {...register("email")}
           />
           {errors.email && (
-            <p className="mt-1 text-xs text-ember">{errors.email.message}</p>
+            <p role="alert" className="mt-1 text-xs text-ember">{errors.email.message}</p>
           )}
         </div>
 
@@ -106,7 +106,7 @@ export default function SignupPage() {
             {...register("password")}
           />
           {errors.password && (
-            <p className="mt-1 text-xs text-ember">{errors.password.message}</p>
+            <p role="alert" className="mt-1 text-xs text-ember">{errors.password.message}</p>
           )}
         </div>
 

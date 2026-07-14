@@ -6,6 +6,7 @@ import { SESSION_COOKIE } from "@/lib/auth-constants";
 const PUBLIC_PATHS = [
   "/",
   "/login",
+  "/login/link-google",
   "/signup",
   "/forgot-password",
   "/reset-password",

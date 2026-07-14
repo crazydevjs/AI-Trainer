@@ -2,6 +2,19 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { sessionSchema } from "@/lib/validators";
+import { runSessionPerformanceEngine } from "@/lib/performance";
+import type {
+  SessionFormSummary,
+  SessionMovementSummary,
+  SessionRiskSummary,
+} from "@/lib/performance";
+import { runPersonalizationEngine } from "@/lib/personalization";
+import { rateLimit } from "@/lib/platform/rate-limiter";
+import { telemetry } from "@/lib/platform/telemetry";
+import { metrics } from "@/lib/platform/metrics";
+import { eventBus } from "@/lib/platform/events";
+import { recordUsage } from "@/lib/platform/usage";
+import { startTrace, addPresenceSpan, timeSpan, endTrace } from "@/lib/observability/trace";
 
 const XP_PER_REP = 2;
 const XP_PER_SET = 15;
@@ -19,6 +32,11 @@ export async function POST(req: Request) {
   const session = await getSession();
   if (!session?.sub) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const rl = rateLimit("session", session.sub);
+  if (!rl.allowed) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
   }
 
   const parsed = sessionSchema.safeParse(await req.json());
@@ -48,6 +66,9 @@ export async function POST(req: Request) {
 
   const feedback = buildFeedback(d);
 
+  const requestStartedAt = Date.now();
+  const trace = startTrace({ userId: session.sub });
+
   const created = await prisma.workoutSession.create({
     data: {
       userId: session.sub,
@@ -75,6 +96,15 @@ export async function POST(req: Request) {
       },
     },
   });
+
+  // Presence spans — these four engines run entirely client-side per
+  // frame; their timing is never transmitted here, only their final
+  // output (already true since Phase 7). See ALGORITHM.md "Distributed
+  // Tracing" for why these carry no duration.
+  addPresenceSpan(trace.id, "repEngine", "client rep data received");
+  if (d.formAnalysis) addPresenceSpan(trace.id, "formEngine", "client form analysis received");
+  if (d.movementAnalysis) addPresenceSpan(trace.id, "movementEngine", "client movement analysis received");
+  if (d.injuryRiskAnalysis) addPresenceSpan(trace.id, "riskEngine", "client risk analysis received");
 
   // --- Gamification: XP, level, streak ---
   const user = await prisma.user.findUnique({
@@ -107,12 +137,69 @@ export async function POST(req: Request) {
     },
   });
 
+  // --- Phase 7: Performance Intelligence & Persistence Layer ---
+  // Runs after the core session write already succeeded; a failure here
+  // must never fail the request that already saved the user's workout.
+  let performance = null;
+  try {
+    const weightKg = d.sets.reduce(
+      (max: number | null, s) => (s.weightKg != null && (max == null || s.weightKg > max) ? s.weightKg : max),
+      null as number | null
+    );
+    performance = await timeSpan(trace.id, "performanceEngine", "runSessionPerformanceEngine", () =>
+      runSessionPerformanceEngine({
+        userId: session.sub,
+        workoutSessionId: created.id,
+        workoutLogId: null,
+        exerciseId: d.exerciseId,
+        weightKg,
+        durationSec: d.durationSec,
+        totalReps: d.totalReps,
+        targetReps: d.targetSets * d.targetReps,
+        caloriesBurned: d.caloriesBurned,
+        restSecondsBeforeSet: null,
+        formAnalysis: (d.formAnalysis as SessionFormSummary | undefined) ?? null,
+        movementAnalysis: (d.movementAnalysis as SessionMovementSummary | undefined) ?? null,
+        riskAnalysis: (d.injuryRiskAnalysis as SessionRiskSummary | undefined) ?? null,
+      }),
+    );
+  } catch (err) {
+    console.error("Performance engine failed (session already saved):", err);
+  }
+
+  // --- Phase 8: Personalized Learning Engine ---
+  // Independent failure isolation from the Performance Engine above — a
+  // bug here must never break workout saving or performance tracking.
+  let personalization = null;
+  try {
+    personalization = await timeSpan(trace.id, "personalizationEngine", "runPersonalizationEngine", () =>
+      runPersonalizationEngine({ userId: session.sub, exerciseId: d.exerciseId }),
+    );
+  } catch (err) {
+    console.error("Personalization engine failed (session already saved):", err);
+  }
+
+  telemetry.track("workout.completed", { userId: session.sub, exerciseId: d.exerciseId, durationSec: d.durationSec });
+  metrics.increment("workout.completed");
+  recordUsage(session.sub, "workoutSessions");
+  eventBus.publish("workout.completed", {
+    userId: session.sub,
+    exerciseId: d.exerciseId,
+    durationMs: d.durationSec * 1000,
+  });
+
+  telemetry.recordTiming("api.sessions.post", Date.now() - requestStartedAt);
+  trace.sessionId = created.id;
+  await endTrace(trace.id);
+
   return NextResponse.json({
     ok: true,
     id: created.id,
     overallScore: Math.round(overall * 10) / 10,
     xpGain,
     feedback,
+    performance,
+    personalization,
   });
 }
 

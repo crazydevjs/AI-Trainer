@@ -71,7 +71,7 @@ export default function ForgotPasswordPage() {
               {...register("email")}
             />
             {errors.email && (
-              <p className="mt-1 text-xs text-ember">{errors.email.message}</p>
+              <p role="alert" className="mt-1 text-xs text-ember">{errors.email.message}</p>
             )}
           </div>
           <Button type="submit" size="lg" className="w-full" disabled={loading}>

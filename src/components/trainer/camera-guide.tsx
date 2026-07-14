@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { getCameraSetup, VIEW_LABEL } from "@/lib/pose/camera-setup";
 import { setVoiceEnabled, speak } from "@/lib/voice";
 import { isMirrored, facingLabel, type Facing } from "@/lib/camera";
+import { saveCalibration } from "@/lib/pose/calibration";
 import { useCameraCheck } from "./use-camera-check";
 import type { TrainerExercise } from "./trainer-experience";
 
@@ -14,6 +15,7 @@ export function CameraGuide({
   exercise,
   voiceOn,
   facing,
+  heightCm,
   onFlipCamera,
   onReady,
   onBack,
@@ -21,6 +23,7 @@ export function CameraGuide({
   exercise: TrainerExercise;
   voiceOn: boolean;
   facing: Facing;
+  heightCm?: number | null;
   onFlipCamera: () => void;
   onReady: () => void;
   onBack: () => void;
@@ -28,7 +31,7 @@ export function CameraGuide({
   const STABILITY_MS = 2500;
 
   const setup = getCameraSetup(exercise.poseKey);
-  const { videoRef, canvasRef, status, errorMsg, check } = useCameraCheck(setup, facing);
+  const { videoRef, canvasRef, status, errorMsg, check } = useCameraCheck(setup, facing, heightCm);
   const [allowOverride, setAllowOverride] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
 
@@ -39,6 +42,22 @@ export function CameraGuide({
   const spokeDetected = useRef(false);
   const spokeStill = useRef(0);
   const lastIssueTs = useRef(0);
+  const calibrationRef = useRef(check.calibration);
+  const countdownValueRef = useRef<number | null>(null);
+  const onReadyRef = useRef(onReady);
+  const voiceOnRef = useRef(voiceOn);
+
+  useEffect(() => {
+    calibrationRef.current = check.calibration;
+  }, [check.calibration]);
+
+  useEffect(() => {
+    onReadyRef.current = onReady;
+  }, [onReady]);
+
+  useEffect(() => {
+    voiceOnRef.current = voiceOn;
+  }, [voiceOn]);
 
   useEffect(() => {
     setVoiceEnabled(voiceOn);
@@ -50,6 +69,7 @@ export function CameraGuide({
     if (tick.current) clearInterval(tick.current);
     tick.current = null;
     counting.current = false;
+    countdownValueRef.current = null;
     setCountdown(null);
   };
 
@@ -70,9 +90,21 @@ export function CameraGuide({
       // begin countdown once stable for STABILITY_MS
       if (!counting.current && countdown == null && now - okSince.current >= STABILITY_MS) {
         counting.current = true;
+        if (calibrationRef.current) saveCalibration(calibrationRef.current);
+        countdownValueRef.current = 3;
         setCountdown(3);
         if (voiceOn) speak("Get ready!", true);
-        tick.current = setInterval(() => setCountdown((c) => (c == null ? null : c - 1)), 1000);
+        tick.current = setInterval(() => {
+          const next = (countdownValueRef.current ?? 1) - 1;
+          countdownValueRef.current = next;
+          setCountdown(next);
+          if (next <= 0) {
+            cancelCountdown();
+            onReadyRef.current();
+          } else if (voiceOnRef.current && next <= 2) {
+            speak(String(next), true);
+          }
+        }, 1000);
       }
     } else {
       // ignore brief flickers; only reset if lost for >700ms
@@ -94,17 +126,6 @@ export function CameraGuide({
       }
     }
   }, [check, status, voiceOn, countdown]);
-
-  // Countdown ticking → voice each number, then start.
-  useEffect(() => {
-    if (countdown == null) return;
-    if (countdown <= 0) {
-      cancelCountdown();
-      onReady();
-      return;
-    }
-    if (voiceOn && countdown <= 2) speak(String(countdown), true);
-  }, [countdown, voiceOn, onReady]);
 
   // Safety net: allow manual start if validation stays flaky.
   useEffect(() => {
@@ -228,11 +249,12 @@ export function CameraGuide({
           </div>
 
           {/* Scores */}
-          <div className="mt-4 grid grid-cols-2 gap-3">
+          <div className="mt-4 grid grid-cols-3 gap-3">
             <Score label="Angle" value={check.angleScore} />
             <Score label="Visibility" value={check.visibilityScore} />
             <Score label="Lighting" value={check.lightingScore} />
             <Score label="Body conf." value={check.confidence} />
+            <Score label="Sharpness" value={check.blurScore} />
           </div>
 
           {/* Readiness checklist */}
@@ -241,6 +263,18 @@ export function CameraGuide({
             <ReadyItem ok={bodyDetected} label="Body detected" />
             <ReadyItem ok={check.ok} label="In position" />
           </div>
+
+          {/* Calibration summary — visible once computed, never silent */}
+          {check.calibration && (
+            <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-xs text-fog">
+              <span className="text-smoke">Calibrated · </span>
+              Height {check.calibration.heightCm}cm
+              {check.calibration.shoulderWidthCm != null && ` · shoulders ${check.calibration.shoulderWidthCm}cm`}
+              {check.calibration.armLengthCm != null && ` · arm ${check.calibration.armLengthCm}cm`}
+              {check.calibration.legLengthCm != null && ` · leg ${check.calibration.legLengthCm}cm`}
+              {` · framing ${check.calibration.framing}`}
+            </div>
+          )}
 
           {/* Status / issues */}
           <div className="mt-3 min-h-[48px]">

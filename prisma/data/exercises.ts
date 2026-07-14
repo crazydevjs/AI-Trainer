@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 // Complete exercise library. Strings map to Prisma enums (validated on insert).
 
 type Cat =

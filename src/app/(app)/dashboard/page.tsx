@@ -32,6 +32,7 @@ export default async function DashboardPage() {
 
   const today = new Date();
   const dow = today.getDay();
+  const todayMs = today.getTime();
 
   const [plan, sessions, firstProgress, latestProgress] = await Promise.all([
     prisma.workoutPlan.findUnique({
@@ -41,7 +42,7 @@ export default async function DashboardPage() {
     prisma.workoutSession.findMany({
       where: {
         userId: user.id,
-        startedAt: { gte: new Date(Date.now() - 7 * 864e5) },
+        startedAt: { gte: new Date(todayMs - 7 * 864e5) },
       },
       select: { startedAt: true, caloriesBurned: true },
     }),
@@ -57,7 +58,7 @@ export default async function DashboardPage() {
 
   // Weekly calorie series (last 7 days).
   const series: DayPoint[] = Array.from({ length: 7 }).map((_, i) => {
-    const d = new Date(Date.now() - (6 - i) * 864e5);
+    const d = new Date(todayMs - (6 - i) * 864e5);
     const calories = sessions
       .filter((s) => s.startedAt.toDateString() === d.toDateString())
       .reduce((sum, s) => sum + s.caloriesBurned, 0);

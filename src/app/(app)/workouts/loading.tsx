@@ -1,0 +1,18 @@
+import { Skeleton, SkeletonCard } from "@/components/ui/skeleton";
+
+export default function WorkoutsLoading() {
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <Skeleton className="h-9 w-56" />
+        <Skeleton className="h-11 w-40 rounded-2xl" />
+      </div>
+      <Skeleton className="h-6 w-24" />
+      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <SkeletonCard key={i} className="h-40" />
+        ))}
+      </div>
+    </div>
+  );
+}

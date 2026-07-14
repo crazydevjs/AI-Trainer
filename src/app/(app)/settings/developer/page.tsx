@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { RotateCcw, Save, FlaskConical, History } from "lucide-react";
+import { RotateCcw, Save, FlaskConical, History, Server, FlaskRound, Workflow, Radar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   SMOOTHING_DEFAULTS,
@@ -17,6 +17,16 @@ import {
   setEngineOverride,
   getHudEnabled,
   setHudEnabled,
+  getStrictValidation,
+  setStrictValidation,
+  getFormEngineEnabled,
+  setFormEngineEnabled,
+  getMovementEngineEnabled,
+  setMovementEngineEnabled,
+  getInjuryRiskEngineEnabled,
+  setInjuryRiskEngineEnabled,
+  getExerciseIntelligenceEnabled,
+  setExerciseIntelligenceEnabled,
   type EngineOverride,
 } from "@/lib/dev";
 
@@ -29,17 +39,31 @@ export default function DeveloperSettingsPage() {
   const [tier, setTier] = useState<string>("");
   const [engine, setEngine] = useState<EngineOverride>("auto");
   const [hud, setHud] = useState(false);
+  const [strict, setStrict] = useState(false);
+  const [formEngine, setFormEngine] = useState(true);
+  const [movementEngine, setMovementEngine] = useState(true);
+  const [injuryRiskEngine, setInjuryRiskEngine] = useState(true);
+  const [exerciseIntelligence, setExerciseIntelligence] = useState(true);
 
   useEffect(() => {
     // Unlock via ?unlock=forge (persisted). Always available in dev builds.
     const q = new URLSearchParams(window.location.search).get("unlock");
     if (q === UNLOCK_CODE) localStorage.setItem("forge:dev", "1");
     const isDev = process.env.NODE_ENV !== "production";
+    // Must re-read here (not via useDevUnlocked/useSyncExternalStore) since
+    // the `?unlock=forge` write above needs to be reflected in this same
+    // pass, before any external-store subscription would notice it.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setUnlocked(isDev || localStorage.getItem("forge:dev") === "1");
     setParams(loadSmoothing());
     setTier(detectTier());
     setEngine(getEngineOverride());
     setHud(getHudEnabled());
+    setStrict(getStrictValidation());
+    setFormEngine(getFormEngineEnabled());
+    setMovementEngine(getMovementEngineEnabled());
+    setInjuryRiskEngine(getInjuryRiskEngineEnabled());
+    setExerciseIntelligence(getExerciseIntelligenceEnabled());
   }, []);
 
   if (!unlocked) {
@@ -73,12 +97,38 @@ export default function DeveloperSettingsPage() {
         apply the next time you start a workout.
       </p>
 
-      <Link href="/settings/developer/history">
-        <Button variant="outline">
-          <History className="h-4 w-4" />
-          Session history dashboard
-        </Button>
-      </Link>
+      <div className="flex flex-wrap gap-3">
+        <Link href="/settings/developer/history">
+          <Button variant="outline">
+            <History className="h-4 w-4" />
+            Session history dashboard
+          </Button>
+        </Link>
+        <Link href="/settings/developer/platform">
+          <Button variant="outline">
+            <Server className="h-4 w-4" />
+            Platform dashboard
+          </Button>
+        </Link>
+        <Link href="/settings/developer/validation">
+          <Button variant="outline">
+            <FlaskRound className="h-4 w-4" />
+            Validation dashboard
+          </Button>
+        </Link>
+        <Link href="/settings/developer/mlops">
+          <Button variant="outline">
+            <Workflow className="h-4 w-4" />
+            MLOps dashboard
+          </Button>
+        </Link>
+        <Link href="/settings/developer/observability">
+          <Button variant="outline">
+            <Radar className="h-4 w-4" />
+            Observability dashboard
+          </Button>
+        </Link>
+      </div>
 
       <div className="glass space-y-4 rounded-3xl p-6">
         <p className="text-xs uppercase tracking-widest text-smoke">Pose engine (A/B)</p>
@@ -119,6 +169,104 @@ export default function DeveloperSettingsPage() {
               setHudEnabled(e.target.checked);
             }}
             className="h-5 w-5 accent-ember"
+          />
+        </label>
+
+        <label className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+          <div>
+            <span className="text-sm text-chalk">Form Analysis Engine</span>
+            <p className="mt-0.5 text-xs text-smoke">
+              On by default. Continuous technique/coaching analysis alongside the rep
+              counter — see ALGORITHM.md. Turn off on low-end devices if FPS drops.
+            </p>
+          </div>
+          <input
+            type="checkbox"
+            checked={formEngine}
+            onChange={(e) => {
+              setFormEngine(e.target.checked);
+              setFormEngineEnabled(e.target.checked);
+            }}
+            className="h-5 w-5 shrink-0 accent-ember"
+          />
+        </label>
+
+        <label className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+          <div>
+            <span className="text-sm text-chalk">Movement Intelligence Engine</span>
+            <p className="mt-0.5 text-xs text-smoke">
+              On by default. Smoothness/symmetry/consistency/compensation analysis
+              across the set — see ALGORITHM.md. Turn off on low-end devices if FPS drops.
+            </p>
+          </div>
+          <input
+            type="checkbox"
+            checked={movementEngine}
+            onChange={(e) => {
+              setMovementEngine(e.target.checked);
+              setMovementEngineEnabled(e.target.checked);
+            }}
+            className="h-5 w-5 shrink-0 accent-ember"
+          />
+        </label>
+
+        <label className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+          <div>
+            <span className="text-sm text-chalk">Injury Risk Engine</span>
+            <p className="mt-0.5 text-xs text-smoke">
+              On by default. Estimates short-term elevated movement risk from fatigue,
+              compensation, and consistency signals — see ALGORITHM.md. Coaching guidance
+              only, not a medical assessment.
+            </p>
+          </div>
+          <input
+            type="checkbox"
+            checked={injuryRiskEngine}
+            onChange={(e) => {
+              setInjuryRiskEngine(e.target.checked);
+              setInjuryRiskEngineEnabled(e.target.checked);
+            }}
+            className="h-5 w-5 shrink-0 accent-ember"
+          />
+        </label>
+
+        <label className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+          <div>
+            <span className="text-sm text-chalk">Exercise Intelligence</span>
+            <p className="mt-0.5 text-xs text-smoke">
+              On by default. Shows exercise-specific biomechanics (ROM, tempo, risk
+              sensitivity, common mistakes) in the dev HUD — see ALGORITHM.md.
+              Metadata only, doesn&apos;t change any score.
+            </p>
+          </div>
+          <input
+            type="checkbox"
+            checked={exerciseIntelligence}
+            onChange={(e) => {
+              setExerciseIntelligence(e.target.checked);
+              setExerciseIntelligenceEnabled(e.target.checked);
+            }}
+            className="h-5 w-5 shrink-0 accent-ember"
+          />
+        </label>
+
+        <label className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+          <div>
+            <span className="text-sm text-chalk">Strict rep validation</span>
+            <p className="mt-0.5 text-xs text-smoke">
+              Off by default. When on, reps that are too fast or too unstable are
+              rejected instead of only flagged — see ALGORITHM.md. Applies on the
+              next workout start.
+            </p>
+          </div>
+          <input
+            type="checkbox"
+            checked={strict}
+            onChange={(e) => {
+              setStrict(e.target.checked);
+              setStrictValidation(e.target.checked);
+            }}
+            className="h-5 w-5 shrink-0 accent-ember"
           />
         </label>
       </div>

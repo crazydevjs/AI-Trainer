@@ -77,7 +77,7 @@ function ResetForm() {
           {...register("password")}
         />
         {errors.password && (
-          <p className="mt-1 text-xs text-ember">{errors.password.message}</p>
+          <p role="alert" className="mt-1 text-xs text-ember">{errors.password.message}</p>
         )}
       </div>
       <Button type="submit" size="lg" className="w-full" disabled={loading}>

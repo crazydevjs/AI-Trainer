@@ -1,10 +1,21 @@
-import { ComingSoon } from "@/components/app/coming-soon";
+import { getCurrentUser } from "@/lib/auth";
+import { SettingsClient } from "@/components/settings/settings-client";
 
-export default function SettingsPage() {
+export const dynamic = "force-dynamic";
+
+export default async function SettingsPage() {
+  const user = await getCurrentUser();
+  if (!user) return null;
+
   return (
-    <ComingSoon
-      title="Settings"
-      description="Notification preferences, units, voice-feedback options, account security, and connected accounts."
+    <SettingsClient
+      user={{
+        name: user.name,
+        email: user.email,
+        image: user.image,
+        googleId: user.googleId,
+        hasPassword: Boolean(user.passwordHash),
+      }}
     />
   );
 }

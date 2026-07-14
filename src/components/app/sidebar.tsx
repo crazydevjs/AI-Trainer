@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import {
@@ -56,11 +57,13 @@ export function Sidebar({
         </button>
       </div>
 
-      {/* Backdrop */}
+      {/* Backdrop — the "Close menu" button above provides the
+          keyboard/screen-reader equivalent, so this is hidden from AT. */}
       {open && (
         <div
           className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
           onClick={() => setOpen(false)}
+          aria-hidden="true"
         />
       )}
 
@@ -113,8 +116,13 @@ export function Sidebar({
           <div className="flex items-center gap-3">
             <div className="grid h-10 w-10 place-items-center overflow-hidden rounded-full bg-gradient-to-br from-ember to-flame text-sm font-bold text-white">
               {user.image ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={user.image} alt="" className="h-full w-full object-cover" />
+                <Image
+                  src={user.image}
+                  alt={`${user.name ?? "Your"} profile picture`}
+                  width={40}
+                  height={40}
+                  className="h-full w-full object-cover"
+                />
               ) : (
                 (user.name?.[0] ?? user.email[0]).toUpperCase()
               )}

@@ -13,6 +13,13 @@ export default function AppError({
 }) {
   useEffect(() => {
     console.error("App route error:", error);
+    fetch("/api/observability/errors", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: error.message, stack: error.stack }),
+    }).catch(() => {
+      // Reporting the error must never itself throw or block the UI.
+    });
   }, [error]);
 
   return (

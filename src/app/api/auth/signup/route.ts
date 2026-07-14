@@ -4,8 +4,19 @@ import { hashPassword, createSession } from "@/lib/auth";
 import { signupSchema } from "@/lib/validators";
 import { createToken } from "@/lib/tokens";
 import { sendVerificationEmail } from "@/lib/email";
+import { rateLimit, RATE_LIMIT_PRESETS } from "@/lib/platform/rate-limiter";
+
+function clientIp(req: Request): string {
+  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+}
 
 export async function POST(req: Request) {
+  const ip = clientIp(req);
+  const rl = rateLimit("auth:signup", ip, RATE_LIMIT_PRESETS.auth);
+  if (!rl.allowed) {
+    return NextResponse.json({ error: "Too many attempts — try again shortly" }, { status: 429 });
+  }
+
   try {
     const body = await req.json();
     const parsed = signupSchema.safeParse(body);
@@ -44,6 +55,7 @@ export async function POST(req: Request) {
       email: user.email,
       role: user.role,
       onboarded: user.onboarded,
+      tokenVersion: user.tokenVersion,
     });
 
     return NextResponse.json({ ok: true, onboarded: false });

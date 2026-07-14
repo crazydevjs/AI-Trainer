@@ -2,4 +2,6 @@
 // MediaPipe BlazePose model, but we only use MoveNet — this satisfies the
 // `Pose` named import without pulling in the broken MediaPipe ESM module.
 export class Pose {}
-export default {};
+
+const mediapipePoseStub = {};
+export default mediapipePoseStub;

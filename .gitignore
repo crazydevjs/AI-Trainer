@@ -37,10 +37,21 @@ yarn-error.log*
 # agent / tooling artifacts (not part of the app)
 .agents/
 .neon
+.claude/
 skills-lock.json
+
+# Playwright E2E artifacts
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
 
 # vercel
 .vercel
+
+# local file-based storage — Phase 11's LocalStorageProvider (.data/storage)
+# and Phase 12's validation datasets/experiments/reports (.data/validation)
+.data/
 
 # typescript
 *.tsbuildinfo

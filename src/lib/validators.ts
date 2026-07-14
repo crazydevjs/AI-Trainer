@@ -26,6 +26,19 @@ export const resetSchema = z.object({
     .regex(/[0-9]/, "Include at least one number"),
 });
 
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Current password is required").optional(),
+  newPassword: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .regex(/[0-9]/, "Include at least one number"),
+});
+
+export const deleteAccountSchema = z.object({
+  password: z.string().optional(),
+  confirmEmail: z.string().optional(),
+});
+
 export const onboardingSchema = z.object({
   age: z.coerce.number().int().min(13).max(100),
   gender: z.enum(["MALE", "FEMALE", "OTHER"]),
@@ -102,6 +115,14 @@ export const sessionSchema = z.object({
       })
     )
     .default([]),
+  // Phase 7 — Performance Intelligence & Persistence Layer. These are the
+  // Form/Movement/Injury-Risk Engines' full session rollups (see
+  // src/lib/pose/{form,movement,injury-risk}-engine/types.ts) — large,
+  // engine-owned nested shapes validated loosely at this boundary and
+  // handed to the Performance Engine, which stores them as Json.
+  formAnalysis: z.unknown().optional(),
+  movementAnalysis: z.unknown().optional(),
+  injuryRiskAnalysis: z.unknown().optional(),
 });
 
 // Full gym session (Workout Session System): title + many exercises, each with
@@ -132,6 +153,11 @@ export const workoutLogSchema = z.object({
             })
           )
           .min(1),
+        // Phase 7 — most-recent AI-tracker sub-session's engine rollups for
+        // this exercise, when AI tracking was used. See sessionSchema above.
+        formAnalysis: z.unknown().optional(),
+        movementAnalysis: z.unknown().optional(),
+        injuryRiskAnalysis: z.unknown().optional(),
       })
     )
     .min(1, "Log at least one exercise"),
@@ -143,3 +169,19 @@ export type SignupInput = z.infer<typeof signupSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type OnboardingInput = z.infer<typeof onboardingSchema>;
 export type WorkoutInput = z.infer<typeof workoutSchema>;
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+
+// Phase 8 — Personalized Learning Engine. Writable, no-UI-yet preference
+// endpoints (see ALGORITHM.md "Personalized Learning Engine").
+export const goalProfileSchema = z.object({
+  goal: z.enum(["STRENGTH", "HYPERTROPHY", "FAT_LOSS", "ENDURANCE", "GENERAL_FITNESS", "REHABILITATION"]),
+  targetFrequency: z.coerce.number().int().min(1).max(14).optional(),
+  notes: z.string().max(280).optional(),
+});
+
+export const coachStyleSchema = z.object({
+  coachingPreference: z.enum(["STRICT", "ENCOURAGING", "TECHNICAL", "MINIMAL", "MOTIVATIONAL"]),
+});
+
+export type GoalProfileInput = z.infer<typeof goalProfileSchema>;
+export type CoachStyleInput = z.infer<typeof coachStyleSchema>;

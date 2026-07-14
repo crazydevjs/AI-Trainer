@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+
 // Top-level fallback that catches errors in the root layout itself.
 export default function GlobalError({
   error,
@@ -8,6 +10,16 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  useEffect(() => {
+    fetch("/api/observability/errors", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: error.message, stack: error.stack }),
+    }).catch(() => {
+      // Reporting the error must never itself throw or block the UI.
+    });
+  }, [error]);
+
   return (
     <html lang="en">
       <body

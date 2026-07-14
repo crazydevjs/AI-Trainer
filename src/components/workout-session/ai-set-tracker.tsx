@@ -10,6 +10,8 @@ import { useEffect, useRef, useState } from "react";
 import { Lock, Loader2, SwitchCamera, X } from "lucide-react";
 import { usePoseTrainer } from "@/components/trainer/use-pose-trainer";
 import { isMirrored, loadFacing, otherFacing, saveFacing, type Facing } from "@/lib/camera";
+import type { SessionFormSummary } from "@/lib/pose/form-engine/types";
+import type { SessionMovementSummary } from "@/lib/pose/movement-engine/types";
 
 export function AiSetTracker({
   poseKey,
@@ -21,27 +23,47 @@ export function AiSetTracker({
   /** cumulative reps counted since this tracker mounted (+ current avg scores) */
   onReps: (reps: number, avgForm: number | null, avgRom: number | null) => void;
   onClose: () => void;
-  /** dev: receives this tracker's full debug log when the panel unmounts */
-  onDebugLog?: (log: Record<string, unknown>[]) => void;
+  /** dev: receives this tracker's full debug log + Form/Movement Engine rollups when the panel unmounts */
+  onDebugLog?: (
+    log: Record<string, unknown>[],
+    formAnalysis?: SessionFormSummary,
+    movementAnalysis?: SessionMovementSummary
+  ) => void;
 }) {
   // lazy init: this panel only mounts client-side (behind the AI toggle)
   const [facing, setFacing] = useState<Facing>(() =>
     typeof window === "undefined" ? "user" : loadFacing()
   );
 
-  const { videoRef, canvasRef, status, errorMsg, state, telemetry, lockState, lockCenter, getDebugLog } =
-    usePoseTrainer({ poseKey, running: true, mode: "beginner", facing });
+  const {
+    videoRef,
+    canvasRef,
+    status,
+    errorMsg,
+    state,
+    telemetry,
+    lockState,
+    lockCenter,
+    getDebugLog,
+    getFormAnalysis,
+    getMovementAnalysis,
+  } = usePoseTrainer({ poseKey, running: true, mode: "beginner", facing });
 
   // Flush the debug log to the parent when the tracker closes (dev tuning).
-  const flushRef = useRef({ onDebugLog, getDebugLog });
+  const flushRef = useRef({ onDebugLog, getDebugLog, getFormAnalysis, getMovementAnalysis });
   useEffect(() => {
-    flushRef.current = { onDebugLog, getDebugLog };
+    flushRef.current = { onDebugLog, getDebugLog, getFormAnalysis, getMovementAnalysis };
   });
   useEffect(
     () => () => {
-      const { onDebugLog: cb, getDebugLog: get } = flushRef.current;
+      const {
+        onDebugLog: cb,
+        getDebugLog: get,
+        getFormAnalysis: getForm,
+        getMovementAnalysis: getMovement,
+      } = flushRef.current;
       const log = get();
-      if (cb && log.length) cb(log);
+      if (cb && log.length) cb(log, getForm(), getMovement());
     },
     []
   );

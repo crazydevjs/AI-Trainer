@@ -29,10 +29,13 @@ import { getExerciseConfig } from "@/lib/pose/exercises";
 import { getCameraSetup } from "@/lib/pose/camera-setup";
 import { REP_TUNING } from "@/lib/pose/rep-counter";
 import { loadSmoothing } from "@/lib/pose/smoothing-config";
+import { loadCalibration } from "@/lib/pose/calibration";
 import { convertToMp4, mp4ConvertSupported, videoFileName } from "@/lib/mp4";
 import type { TrainerExercise, LiftHistory } from "./trainer-experience";
 import type { SessionResult } from "./live-session";
 import type { RecordResult } from "./use-workout-recorder";
+import type { PerformanceEngineResult } from "@/lib/performance";
+import type { PersonalizationEngineResult } from "@/lib/personalization";
 
 export function SessionReport({
   exercise,
@@ -53,15 +56,21 @@ export function SessionReport({
 }) {
   const router = useRouter();
   const saved = useRef(false);
-  const sidRef = useRef(
-    typeof crypto !== "undefined" && crypto.randomUUID
-      ? crypto.randomUUID()
-      : `s-${Date.now().toString(36)}`
-  );
+  const sidRef = useRef<string>("");
+  useEffect(() => {
+    if (!sidRef.current) {
+      sidRef.current =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `s-${Date.now().toString(36)}`;
+    }
+  }, []);
   const [overall, setOverall] = useState<number | null>(null);
   const [xpGain, setXpGain] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<string[]>([]);
   const [saving, setSaving] = useState(true);
+  const [perfResult, setPerfResult] = useState<PerformanceEngineResult | null>(null);
+  const [personalizationResult, setPersonalizationResult] = useState<PersonalizationEngineResult | null>(null);
 
   useEffect(() => {
     if (saved.current) return;
@@ -83,6 +92,10 @@ export function SessionReport({
             completionPct: result.completionPct,
             caloriesBurned: result.caloriesBurned,
             sets: result.sets,
+            // Phase 7 — previously computed client-side only, never sent.
+            formAnalysis: result.formAnalysis,
+            movementAnalysis: result.movementAnalysis,
+            injuryRiskAnalysis: result.injuryRiskAnalysis,
           }),
         });
         const data = await res.json();
@@ -90,6 +103,8 @@ export function SessionReport({
           setOverall(data.overallScore);
           setXpGain(data.xpGain);
           setFeedback(data.feedback ?? []);
+          setPerfResult(data.performance ?? null);
+          setPersonalizationResult(data.personalization ?? null);
         }
       } catch {
         /* show local scores even if save fails */
@@ -149,7 +164,6 @@ export function SessionReport({
       "That's a wrap. Awesome effort.",
     ];
     speak(lines[Math.floor(Math.random() * lines.length)], true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // --- MP4 export -----------------------------------------------------------
@@ -357,6 +371,106 @@ export function SessionReport({
           </div>
         )}
 
+        {/* Form Analysis Engine summary */}
+        {result.formAnalysis && result.formAnalysis.topIssues.length > 0 && (
+          <div className="mt-4 rounded-2xl border border-volt/20 bg-volt/[0.05] p-5">
+            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-widest text-volt">
+              <AlertTriangle className="h-4 w-4" />
+              Form analysis
+            </h2>
+            <div className="mb-3 grid grid-cols-4 gap-2 text-center">
+              <Stat icon={null} value={`${result.formAnalysis.scores.overall}`} label="overall" />
+              <Stat icon={null} value={`${result.formAnalysis.scores.technique}`} label="technique" />
+              <Stat icon={null} value={`${result.formAnalysis.scores.balance}`} label="balance" />
+              <Stat icon={null} value={`${result.formAnalysis.scores.stability}`} label="stability" />
+            </div>
+            <ul className="space-y-2">
+              {result.formAnalysis.issueLog
+                .filter((e) => result.formAnalysis!.topIssues.includes(e.id))
+                .slice(0, 3)
+                .map((e, i) => (
+                  <li key={i} className="flex items-center justify-between text-sm text-fog">
+                    <span className="flex gap-2">
+                      <span className="text-volt">•</span>
+                      {e.id}
+                    </span>
+                    <span className="text-[11px] uppercase text-smoke">{e.severity}</span>
+                  </li>
+                ))}
+            </ul>
+            <p className="mt-2 text-[11px] text-smoke">
+              Estimated from camera pose tracking — a coaching guide, not a clinical assessment.
+              {!result.formAnalysis.hasExerciseProfile &&
+                " Only general joint/balance checks apply to this exercise so far."}
+            </p>
+          </div>
+        )}
+
+        {/* Movement Intelligence Engine summary */}
+        {result.movementAnalysis && (
+          <div className="mt-4 rounded-2xl border border-volt/20 bg-volt/[0.05] p-5">
+            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-widest text-volt">
+              <AlertTriangle className="h-4 w-4" />
+              Movement intelligence
+            </h2>
+            <div className="mb-3 grid grid-cols-4 gap-2 text-center">
+              <Stat icon={null} value={`${result.movementAnalysis.scores.overall}`} label="overall" />
+              <Stat icon={null} value={`${result.movementAnalysis.scores.smoothness}`} label="smoothness" />
+              <Stat icon={null} value={`${result.movementAnalysis.scores.symmetry}`} label="symmetry" />
+              <Stat icon={null} value={`${result.movementAnalysis.scores.consistency}`} label="consistency" />
+            </div>
+            {result.movementAnalysis.strengths.length > 0 && (
+              <p className="text-sm text-fog">
+                <span className="text-neon">Strengths: </span>
+                {result.movementAnalysis.strengths.join(", ")}
+              </p>
+            )}
+            {result.movementAnalysis.weaknesses.length > 0 && (
+              <p className="mt-1 text-sm text-fog">
+                <span className="text-amber">Focus areas: </span>
+                {result.movementAnalysis.focusAreas.join(", ")}
+              </p>
+            )}
+            {result.movementAnalysis.symmetry.dominantSide && (
+              <p className="mt-1 text-sm text-fog">
+                Dominant side:{" "}
+                <span className="text-chalk">{result.movementAnalysis.symmetry.dominantSide}</span>
+              </p>
+            )}
+            <p className="mt-2 text-[11px] text-smoke">
+              Describes observed movement patterns from camera pose tracking, not a medical or
+              injury assessment.
+            </p>
+          </div>
+        )}
+
+        {/* Performance Intelligence summary */}
+        {perfResult && (
+          <div className="mt-4 rounded-2xl border border-amber/20 bg-amber/[0.06] p-5">
+            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-widest text-amber">
+              <Trophy className="h-4 w-4" />
+              Performance
+            </h2>
+            <div className="mb-3 grid grid-cols-3 gap-2 text-center">
+              <Stat icon={null} value={`${perfResult.scores.overallScore}`} label="score" />
+              <Stat icon={null} value={perfResult.exerciseProgress} label="progress" />
+              <Stat icon={null} value={`${perfResult.historyCount}`} label="sessions" />
+            </div>
+            {perfResult.newPersonalBests.length > 0 && (
+              <p className="text-sm text-fog">
+                <span className="text-amber">New personal bests: </span>
+                {perfResult.newPersonalBests.length}
+              </p>
+            )}
+            {perfResult.newAchievements.length > 0 && (
+              <p className="mt-1 text-sm text-fog">
+                <span className="text-neon">Achievements unlocked: </span>
+                {perfResult.newAchievements.map((a) => a.title).join(", ")}
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Workout video */}
         {recording && (
           <div className="mt-6 rounded-2xl border border-volt/20 bg-volt/[0.05] p-5">
@@ -454,16 +568,75 @@ export function SessionReport({
           </Button>
         </div>
 
+        {isDevUnlocked() && perfResult && (
+          <div className="mt-4 space-y-0.5 rounded-xl border border-volt/30 bg-black/75 p-3 font-mono text-[11px] text-fog">
+            <p className="mb-1 font-bold text-volt">PERFORMANCE ENGINE</p>
+            <Row2 k="workout score" v={`${perfResult.scores.overallScore}`} />
+            <Row2 k="progress" v={perfResult.exerciseProgress} />
+            <Row2 k="trend (overall)" v={perfResult.overallProgress} />
+            <Row2 k="PRs" v={`${perfResult.newPersonalBests.length}`} />
+            <Row2
+              k="weakness trend"
+              v={perfResult.weaknesses[0] ? `${perfResult.weaknesses[0].issueId} (${perfResult.weaknesses[0].trend})` : "—"}
+            />
+            <Row2 k="history count" v={`${perfResult.historyCount}`} />
+          </div>
+        )}
+
+        {isDevUnlocked() && personalizationResult && (
+          <div className="mt-4 space-y-0.5 rounded-xl border border-volt/30 bg-black/75 p-3 font-mono text-[11px] text-fog">
+            <p className="mb-1 font-bold text-volt">PERSONALIZATION ENGINE</p>
+            <Row2 k="learning confidence" v={`${Math.round(personalizationResult.profile.learningConfidence * 100)}%`} />
+            <Row2 k="goal" v={personalizationResult.goal.goal} />
+            <Row2 k="coach style" v={personalizationResult.profile.coachingPreference} />
+            <Row2
+              k="prediction"
+              v={
+                personalizationResult.prediction?.expectedImprovementPct != null
+                  ? `+${personalizationResult.prediction.expectedImprovementPct}%`
+                  : "—"
+              }
+            />
+            {personalizationResult.updatedThresholds.length > 0 && (
+              <div className="mt-1 space-y-0.5">
+                <p className="text-smoke">Adaptive thresholds</p>
+                {personalizationResult.updatedThresholds.slice(0, 4).map((t) => (
+                  <div key={t.thresholdType} className="flex items-center justify-between">
+                    <span>{t.thresholdType}</span>
+                    <span className="text-chalk">{t.personalizedValue}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {personalizationResult.updatedWeaknesses.filter((w) => w.classification === "RESOLVED").length > 0 && (
+              <Row2
+                k="recovered weaknesses"
+                v={`${personalizationResult.updatedWeaknesses.filter((w) => w.classification === "RESOLVED").length}`}
+              />
+            )}
+            {personalizationResult.updatedWeaknesses.filter((w) => w.classification === "PERSISTENT").length > 0 && (
+              <Row2
+                k="persistent weaknesses"
+                v={`${personalizationResult.updatedWeaknesses.filter((w) => w.classification === "PERSISTENT").length}`}
+              />
+            )}
+          </div>
+        )}
+
         {isDevUnlocked() && result.debugLog && result.debugLog.length > 0 && (
           <div className="mt-4 flex gap-2">
             <button
-              onClick={() => exportDebug(sidRef.current, exercise, result, unit, debugMeta)}
+              onClick={() =>
+                exportDebug(sidRef.current, exercise, result, unit, debugMeta, perfResult, personalizationResult)
+              }
               className="flex-1 rounded-xl border border-volt/30 bg-volt/10 px-3 py-2 text-xs font-mono text-volt"
             >
               ⤓ JSON ({result.debugLog.length})
             </button>
             <button
-              onClick={() => exportCsv(sidRef.current, exercise, result, unit, debugMeta)}
+              onClick={() =>
+                exportCsv(sidRef.current, exercise, result, unit, debugMeta, perfResult, personalizationResult)
+              }
               className="flex-1 rounded-xl border border-volt/30 bg-volt/10 px-3 py-2 text-xs font-mono text-volt"
             >
               ⤓ CSV (summary)
@@ -472,6 +645,15 @@ export function SessionReport({
         )}
       </motion.div>
     </main>
+  );
+}
+
+function Row2({ k, v }: { k: string; v: string }) {
+  return (
+    <div className="flex justify-between gap-2">
+      <span>{k}</span>
+      <span className="text-chalk">{v}</span>
+    </div>
   );
 }
 
@@ -540,7 +722,9 @@ function exportDebug(
   exercise: TrainerExercise,
   result: SessionResult,
   unit: Unit,
-  meta?: SessionTags
+  meta?: SessionTags,
+  perf?: PerformanceEngineResult | null,
+  personalization?: PersonalizationEngineResult | null
 ) {
   const stats = computeStats(result);
   const report = {
@@ -563,6 +747,7 @@ function exportDebug(
       requiredView: getCameraSetup(exercise.poseKey).view,
       repEngine: REP_TUNING,
       smoothing: loadSmoothing(),
+      calibration: loadCalibration(),
     },
     summary: {
       durationSec: result.durationSec,
@@ -575,6 +760,26 @@ function exportDebug(
     },
     sets: result.sets,
     log: result.debugLog ?? [],
+    // Form Analysis Engine rollup: per-rep scores, the issue lifecycle log
+    // (with severity/duration/confidence), score history, and cross-session
+    // weakness trends — see src/lib/pose/form-engine/.
+    formAnalysis: result.formAnalysis ?? null,
+    // Movement Intelligence Engine rollup: movement scores, score history,
+    // consistency/symmetry/compensation/trend summaries — see
+    // src/lib/pose/movement-engine/.
+    movementAnalysis: result.movementAnalysis ?? null,
+    // Injury Risk Engine rollup: risk timeline, highest/average risk, risk
+    // trend, most common contributing factors, and the recommendation
+    // history — see src/lib/pose/injury-risk-engine/. Coaching guidance
+    // only, not a medical assessment.
+    injuryRiskAnalysis: result.injuryRiskAnalysis ?? null,
+    // Phase 7: Performance Intelligence & Persistence Layer server response
+    // — scores, new personal bests/achievements, weakness trend, progress.
+    performance: perf ?? null,
+    // Phase 8: Personalized Learning Engine server response — learned
+    // profile, adaptive thresholds, weakness classification, prediction,
+    // goal. Never overwrites any default threshold — see ALGORITHM.md.
+    personalization: personalization ?? null,
   };
   download(
     `forge-debug-${exercise.slug}-${Date.now()}.json`,
@@ -592,7 +797,9 @@ function exportCsv(
   exercise: TrainerExercise,
   result: SessionResult,
   unit: Unit,
-  meta?: SessionTags
+  meta?: SessionTags,
+  perf?: PerformanceEngineResult | null,
+  personalization?: PersonalizationEngineResult | null
 ) {
   const stats = computeStats(result);
   const ts = new Date().toISOString();
@@ -604,7 +811,11 @@ function exportCsv(
     "Pose Engine", "Avg FPS", "Min FPS", "Avg Inference (ms)", "Max Inference (ms)",
     "Detection Confidence", "Tracking Loss Events", "False Rep Count",
     "Missed Rep Count (rejected)", "Auto-Fallback Events", "AI Model Version",
-    "Build Version", "Notes/Tags",
+    "Build Version", "Form Overall Score", "Form Top Issues",
+    "Movement Overall Score", "Movement Symmetry Score", "Dominant Side",
+    "Highest Risk Score", "Average Risk Score", "Risk Trend",
+    "Performance Score", "Progress", "New PRs",
+    "Learning Confidence", "Goal", "Coach Style", "Notes/Tags",
   ];
   const notes = [meta?.notes, meta?.environment, meta?.lighting, meta?.prAttempt ? "PR-attempt" : "", meta?.failureSet ? "failure-set" : ""]
     .filter(Boolean)
@@ -633,6 +844,20 @@ function exportCsv(
     stats.fallbackEvents,
     "MoveNet/BlazePose",
     AI_BUILD,
+    result.formAnalysis?.scores.overall ?? "",
+    result.formAnalysis?.topIssues.join("; ") ?? "",
+    result.movementAnalysis?.scores.overall ?? "",
+    result.movementAnalysis?.scores.symmetry ?? "",
+    result.movementAnalysis?.symmetry.dominantSide ?? "",
+    result.injuryRiskAnalysis?.highestRisk ?? "",
+    result.injuryRiskAnalysis?.averageRisk ?? "",
+    result.injuryRiskAnalysis?.riskTrend ?? "",
+    perf?.scores.overallScore ?? "",
+    perf?.exerciseProgress ?? "",
+    perf?.newPersonalBests.length ?? "",
+    personalization ? `${Math.round(personalization.profile.learningConfidence * 100)}%` : "",
+    personalization?.goal.goal ?? "",
+    personalization?.profile.coachingPreference ?? "",
     notes,
   ]);
 

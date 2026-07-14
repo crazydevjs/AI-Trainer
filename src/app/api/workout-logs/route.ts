@@ -3,6 +3,19 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { workoutLogSchema } from "@/lib/validators";
 import { buildCoachSummary, type WorkoutStats } from "@/lib/workout-session";
+import { runSessionPerformanceEngine, saveWorkoutSnapshot } from "@/lib/performance";
+import type {
+  SessionFormSummary,
+  SessionMovementSummary,
+  SessionRiskSummary,
+} from "@/lib/performance";
+import { runPersonalizationEngine } from "@/lib/personalization";
+import { rateLimit } from "@/lib/platform/rate-limiter";
+import { telemetry } from "@/lib/platform/telemetry";
+import { metrics } from "@/lib/platform/metrics";
+import { eventBus } from "@/lib/platform/events";
+import { recordUsage } from "@/lib/platform/usage";
+import { startTrace, addPresenceSpan, timeSpan, endTrace } from "@/lib/observability/trace";
 
 const XP_PER_REP = 2;
 const XP_PER_SET = 15;
@@ -28,6 +41,11 @@ export async function POST(req: Request) {
   const session = await getSession();
   if (!session?.sub) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const rl = rateLimit("session", session.sub);
+  if (!rl.allowed) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
   }
 
   const parsed = workoutLogSchema.safeParse(await req.json());
@@ -117,6 +135,8 @@ export async function POST(req: Request) {
 
   const startedAt = new Date(d.startedAt);
   const endedAt = new Date();
+  const requestStartedAt = Date.now();
+  const trace = startTrace({ userId });
 
   // AI coach observation — generated here where PR results are known.
   const summary =
@@ -190,8 +210,20 @@ export async function POST(req: Request) {
         }),
       },
     },
-    select: { id: true },
+    // exercises: [...] returned here reflects nested-create insertion order
+    // for this same create() call (Prisma-guaranteed for the operation that
+    // just created them) — used below to line up each WorkoutSession id
+    // with the matching d.exercises[i] entry by array index.
+    select: { id: true, exercises: { select: { id: true } } },
   });
+
+  // Presence spans — one per engine per workout log, same reasoning as
+  // src/app/api/sessions/route.ts (these four engines run client-side
+  // per frame; only their final output is ever transmitted here).
+  addPresenceSpan(trace.id, "repEngine", "client rep data received");
+  if (d.exercises.some((ex) => ex.formAnalysis)) addPresenceSpan(trace.id, "formEngine", "client form analysis received");
+  if (d.exercises.some((ex) => ex.movementAnalysis)) addPresenceSpan(trace.id, "movementEngine", "client movement analysis received");
+  if (d.exercises.some((ex) => ex.injuryRiskAnalysis)) addPresenceSpan(trace.id, "riskEngine", "client risk analysis received");
 
   // ---- Upsert PRs ----
   for (const pr of prs) {
@@ -228,10 +260,87 @@ export async function POST(req: Request) {
     },
   });
 
+  // --- Phase 7: Performance Intelligence & Persistence Layer ---
+  // Runs after the core write already succeeded; a failure here must never
+  // fail the request that already saved the user's workout.
+  let performance = null;
+  const analyzedExerciseIds = new Set<string>();
+  try {
+    const exerciseScores: number[] = await timeSpan(trace.id, "performanceEngine", "runSessionPerformanceEngine (per exercise)", async () => {
+      const scores: number[] = [];
+      for (let i = 0; i < d.exercises.length; i++) {
+        const ex = d.exercises[i];
+        const workoutSessionId = log.exercises[i]?.id;
+        if (!workoutSessionId) continue;
+        const hasAnalysis = ex.formAnalysis || ex.movementAnalysis || ex.injuryRiskAnalysis;
+        if (!hasAnalysis) continue;
+        analyzedExerciseIds.add(ex.exerciseId);
+
+        const done = ex.sets.filter((s) => s.reps > 0);
+        const weightKg = done.reduce(
+          (max: number | null, s) => (s.weightKg != null && (max == null || s.weightKg > max) ? s.weightKg : max),
+          null as number | null
+        );
+        const result = await runSessionPerformanceEngine({
+          userId,
+          workoutSessionId,
+          workoutLogId: log.id,
+          exerciseId: ex.exerciseId,
+          weightKg,
+          durationSec: Math.round(d.durationSec / d.exercises.length),
+          totalReps: done.reduce((sum, s) => sum + s.reps, 0),
+          targetReps: Math.max(1, ...ex.sets.map((s) => s.targetReps ?? s.reps)) * ex.sets.length,
+          caloriesBurned: 0,
+          restSecondsBeforeSet: null,
+          formAnalysis: (ex.formAnalysis as SessionFormSummary | undefined) ?? null,
+          movementAnalysis: (ex.movementAnalysis as SessionMovementSummary | undefined) ?? null,
+          riskAnalysis: (ex.injuryRiskAnalysis as SessionRiskSummary | undefined) ?? null,
+        });
+        scores.push(result.scores.overallScore);
+      }
+      return scores;
+    });
+    if (exerciseScores.length) {
+      await saveWorkoutSnapshot({ userId, workoutLogId: log.id, exerciseScores });
+      performance = { exercisesAnalyzed: exerciseScores.length };
+    }
+  } catch (err) {
+    console.error("Performance engine failed (workout already saved):", err);
+  }
+
+  // --- Phase 8: Personalized Learning Engine ---
+  // Independent failure isolation from the Performance Engine above — a
+  // bug here must never break workout saving or performance tracking.
+  let personalization = null;
+  try {
+    const sessionsAnalyzed = await timeSpan(trace.id, "personalizationEngine", "runPersonalizationEngine (per exercise)", async () => {
+      let last = 0;
+      for (const exerciseId of analyzedExerciseIds) {
+        const result = await runPersonalizationEngine({ userId, exerciseId });
+        last = result.profile.sessionsAnalyzed;
+      }
+      return last;
+    });
+    if (analyzedExerciseIds.size) personalization = { sessionsAnalyzed };
+  } catch (err) {
+    console.error("Personalization engine failed (workout already saved):", err);
+  }
+
+  telemetry.track("workout.completed", { userId, durationSec: d.durationSec });
+  metrics.increment("workout.completed");
+  recordUsage(userId, "workoutSessions");
+  eventBus.publish("workout.completed", { userId, durationMs: d.durationSec * 1000 });
+
+  telemetry.recordTiming("api.workout-logs.post", Date.now() - requestStartedAt);
+  trace.sessionId = log.id;
+  await endTrace(trace.id);
+
   return NextResponse.json({
     ok: true,
     id: log.id,
     xpGain,
+    performance,
+    personalization,
     prs,
     summary,
     totals: { totalSets, totalReps, totalVolumeKg: Math.round(totalVolumeKg * 10) / 10 },

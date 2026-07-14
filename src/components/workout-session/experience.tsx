@@ -46,6 +46,10 @@ export interface AiLogChunk {
   poseKey: string | null;
   at: number; // epoch ms when the tracker closed
   log: Record<string, unknown>[];
+  /** Form Analysis Engine session rollup — see src/lib/pose/form-engine/. */
+  formAnalysis?: import("@/lib/pose/form-engine/types").SessionFormSummary;
+  /** Movement Intelligence Engine session rollup — see src/lib/pose/movement-engine/. */
+  movementAnalysis?: import("@/lib/pose/movement-engine/types").SessionMovementSummary;
 }
 
 type Phase = "plan" | "active" | "summary";
@@ -117,20 +121,32 @@ export function WorkoutSessionExperience({ library }: { library: LibraryExercise
         durationSec: dur,
         exercises: draft.exercises
           .filter((ex) => ex.sets.length > 0)
-          .map((ex, i) => ({
-            exerciseId: ex.exerciseId,
-            order: i,
-            sets: ex.sets.map((s, j) => ({
-              setNumber: j + 1,
-              reps: s.doneReps ?? 0,
-              targetReps: s.targetReps > 0 ? s.targetReps : undefined,
-              failed: s.failed,
-              weightKg: s.weightKg > 0 ? s.weightKg : undefined,
-              aiTracked: s.aiTracked,
-              formScore: s.formScore,
-              romScore: s.romScore,
-            })),
-          })),
+          .map((ex, i) => {
+            // Phase 7 — most-recent AI-tracker sub-session for this exercise
+            // (matched by slug, since AiLogChunk has no exerciseId). Only
+            // the last chunk is sent when an exercise had multiple AI
+            // tracking sub-sessions — see ALGORITHM.md "Known limitations".
+            const lastChunk = aiLogs
+              .filter((c) => c.slug === ex.slug)
+              .sort((a, b) => a.at - b.at)
+              .pop();
+            return {
+              exerciseId: ex.exerciseId,
+              order: i,
+              sets: ex.sets.map((s, j) => ({
+                setNumber: j + 1,
+                reps: s.doneReps ?? 0,
+                targetReps: s.targetReps > 0 ? s.targetReps : undefined,
+                failed: s.failed,
+                weightKg: s.weightKg > 0 ? s.weightKg : undefined,
+                aiTracked: s.aiTracked,
+                formScore: s.formScore,
+                romScore: s.romScore,
+              })),
+              formAnalysis: lastChunk?.formAnalysis,
+              movementAnalysis: lastChunk?.movementAnalysis,
+            };
+          }),
       };
       const res = await fetch("/api/workout-logs", {
         method: "POST",
@@ -148,7 +164,7 @@ export function WorkoutSessionExperience({ library }: { library: LibraryExercise
     } finally {
       setSaving(false);
     }
-  }, [draft]);
+  }, [draft, aiLogs]);
 
   if (phase === "summary" && result && finishedDraft) {
     return (

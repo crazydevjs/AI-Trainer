@@ -1,7 +1,10 @@
 import { SignJWT, jwtVerify } from "jose";
+import { requireEnv, getEnv } from "@/lib/platform/security/secrets";
 
 const secret = new TextEncoder().encode(
-  process.env.JWT_SECRET || "dev-insecure-secret-change-me"
+  process.env.NODE_ENV === "production"
+    ? requireEnv("JWT_SECRET")
+    : getEnv("JWT_SECRET", "dev-insecure-secret-change-me")
 );
 
 export interface SessionPayload {
@@ -9,6 +12,7 @@ export interface SessionPayload {
   email: string;
   role: "USER" | "ADMIN";
   onboarded: boolean;
+  tokenVersion: number;
 }
 
 /** Sign a session JWT (7-day expiry). Edge & Node compatible. */

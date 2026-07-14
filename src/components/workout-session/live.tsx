@@ -276,13 +276,15 @@ export function LiveWorkout({
               poseKey={ex.poseKey}
               onReps={handleAiReps}
               onClose={() => setAiOn(false)}
-              onDebugLog={(log) =>
+              onDebugLog={(log, formAnalysis, movementAnalysis) =>
                 onAiLog?.({
                   exercise: ex.name,
                   slug: ex.slug,
                   poseKey: ex.poseKey,
                   at: Date.now(),
                   log,
+                  formAnalysis,
+                  movementAnalysis,
                 })
               }
             />

@@ -23,8 +23,24 @@ function LoginForm() {
   const {
     register,
     handleSubmit,
+    getValues,
     formState: { errors },
   } = useForm<LoginInput>({ resolver: zodResolver(loginSchema) });
+
+  async function resendVerification() {
+    const email = getValues("email");
+    if (!email) return;
+    try {
+      await fetch("/api/auth/resend-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      toast.success("Verification email sent — check your inbox");
+    } catch {
+      toast.error("Network error. Try again.");
+    }
+  }
 
   async function onSubmit(values: LoginInput) {
     setLoading(true);
@@ -36,6 +52,15 @@ function LoginForm() {
       });
       const data = await res.json();
       if (!res.ok) {
+        if (data.code === "EMAIL_NOT_VERIFIED") {
+          toast.error(data.error ?? "Verify your email before logging in", {
+            action: {
+              label: "Resend",
+              onClick: () => void resendVerification(),
+            },
+          });
+          return;
+        }
         toast.error(data.error ?? "Login failed");
         return;
       }
@@ -71,7 +96,7 @@ function LoginForm() {
             {...register("email")}
           />
           {errors.email && (
-            <p className="mt-1 text-xs text-ember">{errors.email.message}</p>
+            <p role="alert" className="mt-1 text-xs text-ember">{errors.email.message}</p>
           )}
         </div>
 
@@ -93,7 +118,7 @@ function LoginForm() {
             {...register("password")}
           />
           {errors.password && (
-            <p className="mt-1 text-xs text-ember">{errors.password.message}</p>
+            <p role="alert" className="mt-1 text-xs text-ember">{errors.password.message}</p>
           )}
         </div>
 

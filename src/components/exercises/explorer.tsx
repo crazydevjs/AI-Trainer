@@ -59,6 +59,7 @@ export function ExerciseExplorer({ exercises }: { exercises: ExerciseCard[] }) {
         <div className="relative flex-1">
           <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-smoke" />
           <Input
+            aria-label="Search by name, muscle, or equipment"
             placeholder="Search by name, muscle, or equipment…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}

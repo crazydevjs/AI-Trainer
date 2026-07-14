@@ -7,17 +7,22 @@ import { KeypointSmoother } from "@/lib/pose/one-euro";
 import { loadSmoothing } from "@/lib/pose/smoothing-config";
 import type { CameraSetup } from "@/lib/pose/camera-setup";
 import { isMirrored, type Facing } from "@/lib/camera";
+import { estimateCalibration, type CalibrationProfile } from "@/lib/pose/calibration";
+import { toMap } from "@/lib/pose/angles";
 
 export type CheckStatus = "loading" | "ready" | "error";
 
 export interface CameraCheck {
-  orientation: "front" | "side" | "45" | "unknown";
+  orientation: "front" | "side" | "45" | "rear" | "unknown";
   visibilityScore: number;
   angleScore: number;
   lightingScore: number;
   confidence: number;
+  blurScore: number;
+  fps: number;
   issues: string[];
   ok: boolean;
+  calibration: CalibrationProfile | null;
 }
 
 const INITIAL: CameraCheck = {
@@ -26,8 +31,11 @@ const INITIAL: CameraCheck = {
   angleScore: 0,
   lightingScore: 0,
   confidence: 0,
+  blurScore: 0,
+  fps: 0,
   issues: ["Stand in front of the camera so I can see you."],
   ok: false,
+  calibration: null,
 };
 
 const SKELETON: [string, string][] = [
@@ -47,14 +55,17 @@ const SKELETON: [string, string][] = [
 
 const ok = (k?: any) => (k?.score ?? 0) >= 0.3;
 
-export function useCameraCheck(setup: CameraSetup, facing: Facing) {
+export function useCameraCheck(setup: CameraSetup, facing: Facing, heightCm?: number | null) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const detectorRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number>(0);
   const brightRef = useRef(120);
-  const lastBright = useRef(0);
+  const sharpRef = useRef(50);
+  const lastSample = useRef(0);
+  const fpsRef = useRef(30);
+  const lastFrameTs = useRef(0);
   const smootherRef = useRef<KeypointSmoother | null>(null);
   if (!smootherRef.current) {
     const p = loadSmoothing();
@@ -62,6 +73,8 @@ export function useCameraCheck(setup: CameraSetup, facing: Facing) {
   }
   const facingRef = useRef(facing);
   facingRef.current = facing;
+  const heightRef = useRef(heightCm);
+  heightRef.current = heightCm;
 
   const [status, setStatus] = useState<CheckStatus>("loading");
   const [errorMsg, setErrorMsg] = useState("");
@@ -70,22 +83,41 @@ export function useCameraCheck(setup: CameraSetup, facing: Facing) {
   // Load the model + run the detection loop once.
   useEffect(() => {
     let cancelled = false;
+    const SAMPLE_SIZE = 64;
     const sampler = document.createElement("canvas");
-    sampler.width = 16;
-    sampler.height = 16;
+    sampler.width = SAMPLE_SIZE;
+    sampler.height = SAMPLE_SIZE;
 
-    function sampleBrightness(video: HTMLVideoElement, now: number) {
-      if (now - lastBright.current < 500) return;
-      lastBright.current = now;
+    // Brightness (mean luma) + a cheap sharpness proxy (mean adjacent-pixel
+    // gradient — low for a blurry/out-of-focus frame, high for a crisp one).
+    // Reuses one small downsample so both checks stay ~free per frame.
+    function sampleFrame(video: HTMLVideoElement, now: number) {
+      if (now - lastSample.current < 500) return;
+      lastSample.current = now;
       const ctx = sampler.getContext("2d");
       if (!ctx) return;
-      ctx.drawImage(video, 0, 0, 16, 16);
-      const { data } = ctx.getImageData(0, 0, 16, 16);
+      ctx.drawImage(video, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
+      const { data } = ctx.getImageData(0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
+      const n = SAMPLE_SIZE * SAMPLE_SIZE;
+      const luma = new Float32Array(n);
       let sum = 0;
-      for (let i = 0; i < data.length; i += 4) {
-        sum += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+      for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+        const l = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+        luma[p] = l;
+        sum += l;
       }
-      brightRef.current = sum / (data.length / 4);
+      brightRef.current = sum / n;
+
+      let grad = 0;
+      let gradN = 0;
+      for (let y = 0; y < SAMPLE_SIZE - 1; y++) {
+        for (let x = 0; x < SAMPLE_SIZE - 1; x++) {
+          const i = y * SAMPLE_SIZE + x;
+          grad += Math.abs(luma[i] - luma[i + 1]) + Math.abs(luma[i] - luma[i + SAMPLE_SIZE]);
+          gradN++;
+        }
+      }
+      sharpRef.current = grad / gradN;
     }
 
     async function init() {
@@ -114,12 +146,26 @@ export function useCameraCheck(setup: CameraSetup, facing: Facing) {
       if (video && canvas && detector && video.readyState >= 2) {
         try {
           const now = performance.now();
-          sampleBrightness(video, now);
+          if (lastFrameTs.current) {
+            const dt = now - lastFrameTs.current;
+            if (dt > 0) fpsRef.current = fpsRef.current * 0.9 + (1000 / dt) * 0.1;
+          }
+          lastFrameTs.current = now;
+          sampleFrame(video, now);
           const poses = (await detector.estimatePoses(video)) as Pose[];
           const best = poses.sort((a, b) => (b.score ?? 0) - (a.score ?? 0))[0] ?? null;
           if (best) best.keypoints = smootherRef.current!.filter(best.keypoints, now / 1000);
           else smootherRef.current!.reset();
-          const result = evaluate(setup, best, video.videoWidth, video.videoHeight, brightRef.current);
+          const result = evaluate(
+            setup,
+            best,
+            video.videoWidth,
+            video.videoHeight,
+            brightRef.current,
+            sharpRef.current,
+            fpsRef.current,
+            heightRef.current
+          );
           draw(canvas, video, best, result.ok, isMirrored(facingRef.current));
           setCheck(result);
         } catch {
@@ -183,22 +229,35 @@ function evaluate(
   pose: Pose | null,
   w: number,
   h: number,
-  brightness: number
+  brightness: number,
+  sharpness: number,
+  fps: number,
+  heightCm: number | null | undefined
 ): CameraCheck {
   const issues: string[] = [];
   const lightingScore = Math.round(Math.max(0, Math.min(100, (brightness / 110) * 100)));
+  // Empirically-scaled edge-gradient proxy for focus; conservative low
+  // threshold below so an ordinary webcam/phone frame doesn't false-trigger.
+  const blurScore = Math.round(Math.max(0, Math.min(100, (sharpness / 14) * 100)));
+  const fpsOk = fps >= 10;
 
   if (!pose || (pose.score ?? 0) < 0.2) {
+    if (blurScore < 20) issues.push("Camera image is blurry — clean the lens or hold it steady.");
+    if (!fpsOk) issues.push("Performance is too low for reliable tracking — close other apps.");
+    issues.push(
+      brightness < 45 ? "Increase the lighting in the room." : "Stand in front of the camera so I can see you."
+    );
     return {
       orientation: "unknown",
       visibilityScore: 0,
       angleScore: 0,
       lightingScore,
       confidence: 0,
-      issues: [
-        brightness < 45 ? "Increase the lighting in the room." : "Stand in front of the camera so I can see you.",
-      ],
+      blurScore,
+      fps: Math.round(fps),
+      issues,
       ok: false,
+      calibration: null,
     };
   }
 
@@ -214,18 +273,25 @@ function evaluate(
   const rs = map.right_shoulder;
   const lh = map.left_hip;
   const rh = map.right_hip;
+  // Front and rear both produce a wide shoulder spread relative to torso
+  // height; distinguish them by whether facial landmarks are confidently
+  // seen. Lower confidence than front/side — flagged as a heuristic, not a
+  // certainty, in the UI.
   let orientation: CameraCheck["orientation"] = "unknown";
   if (ok(ls) && ok(rs)) {
     const torso = Math.abs((ls.y + rs.y) / 2 - ((lh?.y ?? ls.y) + (rh?.y ?? rs.y)) / 2) || 1;
     const ratio = Math.abs(ls.x - rs.x) / torso;
-    orientation = ratio > 0.6 ? "front" : ratio < 0.32 ? "side" : "45";
+    const faceVisible = ok(map.nose) || ok(map.left_ear) || ok(map.right_ear);
+    if (ratio > 0.6) orientation = faceVisible ? "front" : "rear";
+    else orientation = ratio < 0.32 ? "side" : "45";
   } else if (ok(ls) || ok(rs)) {
     orientation = "side";
   }
 
   let angleScore = 50;
   if (setup.view === "side") angleScore = orientation === "side" ? 100 : orientation === "45" ? 60 : 25;
-  else if (setup.view === "front") angleScore = orientation === "front" ? 100 : orientation === "45" ? 60 : 25;
+  else if (setup.view === "front")
+    angleScore = orientation === "front" ? 100 : orientation === "45" ? 60 : orientation === "rear" ? 15 : 25;
   else angleScore = orientation === "45" ? 100 : orientation === "unknown" ? 40 : 75;
 
   let visible = 0;
@@ -240,7 +306,13 @@ function evaluate(
   const feetOk = inFrame(map.left_ankle) || inFrame(map.right_ankle);
 
   if (angleScore < 70) {
-    issues.push(setup.view === "front" ? "Face the camera (front view)." : "Rotate your camera to the side.");
+    issues.push(
+      orientation === "rear"
+        ? "You're facing away from the camera — turn to face it."
+        : setup.view === "front"
+          ? "Face the camera (front view)."
+          : "Rotate your camera to the side."
+    );
   }
   if (setup.fullBody && !feetOk) issues.push("Your lower body isn't visible — move the camera back.");
   if (setup.fullBody && !headOk) issues.push("Move back — keep your head in frame.");
@@ -248,13 +320,34 @@ function evaluate(
     issues.push(`Keep your ${missing.join(", ")} visible.`);
   }
   if (lightingScore < 50) issues.push("Increase the lighting in the room.");
+  if (blurScore < 20) issues.push("Camera image is blurry — clean the lens or hold it steady.");
+  if (!fpsOk) issues.push("Performance is too low for reliable tracking — close other apps.");
 
   const fullBodyOk = !setup.fullBody || (feetOk && headOk);
   const okAll =
-    angleScore >= 70 && visibilityScore >= 85 && lightingScore >= 45 && confidence >= 35 && fullBodyOk;
+    angleScore >= 70 &&
+    visibilityScore >= 85 &&
+    lightingScore >= 45 &&
+    confidence >= 35 &&
+    fullBodyOk &&
+    blurScore >= 20 &&
+    fpsOk;
   if (okAll) issues.length = 0;
 
-  return { orientation, visibilityScore, angleScore, lightingScore, confidence, issues, ok: okAll };
+  const calibration = estimateCalibration(toMap(pose.keypoints), heightCm, h);
+
+  return {
+    orientation,
+    visibilityScore,
+    angleScore,
+    lightingScore,
+    confidence,
+    blurScore,
+    fps: Math.round(fps),
+    issues,
+    ok: okAll,
+    calibration,
+  };
 }
 
 function draw(

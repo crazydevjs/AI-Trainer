@@ -23,6 +23,7 @@ import { SessionReport } from "./session-report";
 import { CameraGuide } from "./camera-guide";
 import { useWorkoutRecorder } from "./use-workout-recorder";
 import { isDevUnlocked, type SessionTags } from "@/lib/dev";
+import { isE2ETestMode, buildCannedSessionResult } from "@/lib/pose/test-mode";
 
 export interface TrainerExercise {
   id: string;
@@ -50,10 +51,12 @@ type Phase = "setup" | "camera" | "active" | "report";
 export function TrainerExperience({
   exercise,
   bodyWeightKg,
+  heightCm,
   history,
 }: {
   exercise: TrainerExercise;
   bodyWeightKg: number;
+  heightCm?: number | null;
   history: LiftHistory;
 }) {
   const router = useRouter();
@@ -74,8 +77,14 @@ export function TrainerExperience({
   const [tags, setTags] = useState<SessionTags>({});
   const recorder = useWorkoutRecorder();
 
-  // restore the last-used camera + weight unit
+  // restore the last-used camera + weight unit. Must stay in an effect (not
+  // a lazy useState initializer) since this is SSR'd from a Server
+  // Component — reading localStorage during the initial render, even
+  // guarded by typeof window, would make the client's first paint diverge
+  // from the server-rendered HTML (a hydration mismatch); deferring to an
+  // effect keeps the first paint identical on both, then syncs right after.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setFacing(loadFacing());
     setUnit(loadUnit());
     setIsDev(isDevUnlocked());
@@ -104,6 +113,7 @@ export function TrainerExperience({
         exercise={exercise}
         voiceOn={voiceOn}
         facing={facing}
+        heightCm={heightCm}
         onFlipCamera={flipCamera}
         onReady={() => setPhase("active")}
         onBack={() => setPhase("setup")}
@@ -440,6 +450,23 @@ export function TrainerExperience({
             // Unlock speech synthesis inside the click gesture so the coach
             // can speak in production (autoplay policy on new origins).
             if (voiceOn) unlockVoice();
+            if (isE2ETestMode()) {
+              // Headless CI has no camera — skip straight to a canned
+              // result so the E2E spec still exercises the real
+              // save-to-`/api/sessions` → summary-screen flow.
+              setResult(
+                buildCannedSessionResult({
+                  isHold,
+                  targetReps: reps,
+                  targetSets: sets,
+                  repsMode,
+                  weighted,
+                  startWeightKg: weightKg,
+                })
+              );
+              setPhase("report");
+              return;
+            }
             setPhase("camera");
           }}
         >

@@ -29,6 +29,7 @@ model User {
   role            Role      @default(USER)
   emailVerified   DateTime?
   onboarded       Boolean   @default(false)
+  tokenVersion    Int       @default(0) // bumped to invalidate all outstanding session JWTs
 
   // gamification snapshot
   xp              Int       @default(0)
@@ -50,6 +51,22 @@ model User {
   notifications   Notification[]
   tokens          Token[]
   customWorkouts  CustomWorkout[]
+  subscription    Subscription?
+
+  // Phase 7 — Performance Intelligence & Persistence Layer (all additive)
+  performanceSnapshots PerformanceSnapshot[]
+  weaknessHistory      WeaknessHistory[]
+  personalBests        PersonalBest[]
+  trendHistory         TrendHistory[]
+  statistics           UserStatistics?
+
+  // Phase 8 — Personalized Learning Engine (all additive)
+  learningProfile           UserLearningProfile?
+  adaptiveThresholds        AdaptiveThreshold[]
+  learnedWeaknesses         LearnedWeakness[]
+  recommendationEffectiveness RecommendationEffectiveness[]
+  goalProfile               GoalProfile?
+  progressPredictions       ProgressPrediction[]
 
   @@index([email])
 }
@@ -70,6 +87,29 @@ model Token {
   createdAt DateTime  @default(now())
 
   @@index([userId, type])
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  PAST_DUE
+  CANCELED
+}
+
+// Phase 21 — persisted backing store for src/lib/platform/subscriptions/
+// (previously an in-memory Map). Stripe test-mode only for the v1 Beta —
+// see src/lib/platform/billing/providers/stripe-provider.ts.
+model Subscription {
+  id                   String             @id @default(cuid())
+  userId               String             @unique
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId               String             @default("free")
+  status               SubscriptionStatus @default(ACTIVE)
+  stripeCustomerId     String?            @unique
+  stripeSubscriptionId String?            @unique
+  currentPeriodEnd     DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
 }
 
 // ============================================================
@@ -245,6 +285,17 @@ model Exercise {
   sessions               WorkoutSession[]
   records                PersonalRecord[]
   customWorkoutExercises CustomWorkoutExercise[]
+
+  // Phase 7 — Performance Intelligence & Persistence Layer (all additive)
+  performanceSnapshots   PerformanceSnapshot[]
+  weaknessHistory        WeaknessHistory[]
+  personalBests          PersonalBest[]
+  trendHistory           TrendHistory[]
+
+  // Phase 8 — Personalized Learning Engine (all additive)
+  adaptiveThresholds      AdaptiveThreshold[]
+  learnedWeaknesses       LearnedWeakness[]
+  progressPredictions     ProgressPrediction[]
 }
 
 // ============================================================
@@ -351,6 +402,9 @@ model WorkoutLog {
 
   exercises      WorkoutSession[]
 
+  // Phase 7 — Performance Intelligence & Persistence Layer (additive)
+  performanceSnapshots PerformanceSnapshot[]
+
   @@index([userId, startedAt])
 }
 
@@ -386,6 +440,16 @@ model WorkoutSession {
 
   sets          SessionSet[]
 
+  // Phase 7 — Performance Intelligence & Persistence Layer (all additive).
+  // The rich per-engine analysis (Form/Movement/Injury-Risk Engine output)
+  // that used to stay client-side only — see ALGORITHM.md "Performance
+  // Intelligence & Persistence Layer".
+  formAnalysis      SessionFormAnalysis?
+  movementAnalysis  SessionMovementAnalysis?
+  riskAnalysis      SessionRiskAnalysis?
+  performanceSnapshot PerformanceSnapshot?
+  personalBests     PersonalBest[]
+
   @@index([userId, startedAt])
   @@index([workoutLogId])
 }
@@ -401,6 +465,424 @@ model SessionSet {
   weightKg   Float?
   formScore  Float?
   romScore   Float?
+}
+
+// ============================================================
+// PERFORMANCE INTELLIGENCE & PERSISTENCE LAYER (Phase 7)
+//
+// Post-workout only — nothing here is written or read during a live
+// session. Persists the Form/Movement/Injury-Risk Engines' full analysis
+// (previously computed client-side only, never sent to the server) plus
+// cross-session historical learning: weakness trends, personal bests,
+// progress trends, and aggregate user statistics. See ALGORITHM.md
+// "Performance Intelligence & Persistence Layer".
+//
+// Deep, event/time-series-shaped data (per-frame score history, issue
+// logs, risk timelines) is stored as `Json` rather than fully normalized —
+// at "millions of sessions" scale, exploding 1Hz score samples into rows
+// would dwarf every other table for little query benefit. Aggregate/
+// queryable fields (scores, counts, trend labels) are normalized columns.
+// ============================================================
+
+// One row per WorkoutSession — the Form Analysis Engine's session rollup.
+model SessionFormAnalysis {
+  id        String         @id @default(cuid())
+  sessionId String         @unique
+  session   WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  jointScore           Float
+  alignmentScore       Float
+  balanceScore         Float
+  romScore             Float
+  stabilityScore       Float
+  movementQualityScore Float
+  techniqueScore       Float
+  overallScore         Float
+
+  topIssues          String[] @default([])
+  hasExerciseProfile Boolean  @default(false)
+
+  issueLog     Json // IssueLogEntry[] — see form-engine/types.ts
+  scoreHistory Json // { t, scores }[]
+  weaknesses   Json // WeaknessTrend[]
+
+  createdAt DateTime @default(now())
+
+  @@index([sessionId])
+}
+
+// One row per WorkoutSession — the Movement Intelligence Engine's rollup.
+model SessionMovementAnalysis {
+  id        String         @id @default(cuid())
+  sessionId String         @unique
+  session   WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  smoothnessScore   Float
+  controlScore      Float
+  coordinationScore Float
+  symmetryScore     Float
+  consistencyScore  Float
+  stabilityScore    Float
+  efficiencyScore   Float
+  overallScore      Float
+
+  dominantSide String?
+  strengths    String[] @default([])
+  weaknesses   String[] @default([])
+  focusAreas   String[] @default([])
+
+  scoreHistory Json // { t, scores }[]
+  consistency  Json // ConsistencySummary
+  symmetry     Json // SymmetrySummary
+  compensation Json // CompensationSummary
+  trend        Json // TrendSummary
+
+  createdAt DateTime @default(now())
+
+  @@index([sessionId])
+}
+
+// One row per WorkoutSession — the Injury Risk Engine's rollup.
+model SessionRiskAnalysis {
+  id        String         @id @default(cuid())
+  sessionId String         @unique
+  session   WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  highestRisk      Float
+  averageRisk      Float
+  riskTrend        String // TrendDirection, stored as a plain string — see
+                           // ALGORITHM.md "Independence from the runtime engines"
+  mostCommonCauses String[] @default([])
+
+  riskTimeline          Json // RiskTimelineEntry[]
+  recommendationHistory Json // RecommendationHistoryEntry[]
+
+  createdAt DateTime @default(now())
+
+  @@index([sessionId])
+}
+
+// The Performance Engine's 8-dimension score. One row per completed
+// exercise-in-a-session (-> workoutSessionId) or per whole gym session
+// (-> workoutLogId) — naturally append-only, so this table also doubles as
+// the historical score-over-time log (TrendHistory is the cached rollup
+// of it, not a replacement for it).
+model PerformanceSnapshot {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  workoutLogId String?
+  workoutLog   WorkoutLog? @relation(fields: [workoutLogId], references: [id], onDelete: Cascade)
+
+  workoutSessionId String?         @unique
+  workoutSession   WorkoutSession? @relation(fields: [workoutSessionId], references: [id], onDelete: Cascade)
+
+  exerciseId String?
+  exercise   Exercise? @relation(fields: [exerciseId], references: [id])
+
+  workoutScore     Float?
+  exerciseScore    Float?
+  consistencyScore Float?
+  techniqueScore   Float?
+  strengthScore    Float?
+  recoveryScore    Float?
+  volumeScore      Float?
+  overallScore     Float
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([workoutLogId])
+}
+
+// One row per (user, exercise-or-null, issueId) — upserted every session
+// that detects the same recurring technique/compensation issue. issueId
+// is a form-engine IssueId or movement-engine CompensationId, stored as a
+// plain string (see "Independence from the runtime engines").
+model WeaknessHistory {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  exerciseId String?
+  exercise   Exercise? @relation(fields: [exerciseId], references: [id])
+
+  issueId String
+  source  String // "form" | "movement"
+
+  frequency      Int      @default(1)
+  severity       String // last-seen severity label
+  trend          String // TrendDirection
+  improvementPct Float?
+
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+
+  @@unique([userId, exerciseId, issueId])
+  @@index([userId, lastSeenAt])
+}
+
+enum PersonalBestCategory {
+  HIGHEST_WEIGHT
+  MOST_REPS
+  MOST_VOLUME
+  LONGEST_WORKOUT
+  BEST_TECHNIQUE
+  BEST_CONSISTENCY
+  BEST_SYMMETRY
+  BEST_MOVEMENT_SCORE
+  BEST_PERFORMANCE_SCORE
+}
+
+// One row per (user, exercise-or-null, category). exerciseId is null for
+// workout-level categories (LONGEST_WORKOUT, BEST_CONSISTENCY, etc.) that
+// aren't tied to a single exercise — see ALGORITHM.md "Known limitations"
+// for why those rows can't rely on the compound-unique constraint alone.
+model PersonalBest {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  exerciseId String?
+  exercise   Exercise? @relation(fields: [exerciseId], references: [id])
+
+  category PersonalBestCategory
+  value    Float
+
+  workoutSessionId String?
+  workoutSession   WorkoutSession? @relation(fields: [workoutSessionId], references: [id], onDelete: SetNull)
+
+  achievedAt DateTime @default(now())
+
+  @@unique([userId, exerciseId, category])
+  @@index([userId, category])
+}
+
+// One upserted "current state" row per (user, exercise-or-null) — a cached
+// rollup for fast trend lookups; the historical log itself lives in
+// PerformanceSnapshot.
+model TrendHistory {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  exerciseId String? // null = overall, across all exercises
+  exercise   Exercise? @relation(fields: [exerciseId], references: [id])
+
+  sevenSessionTrend String // TrendDirection
+  thirtyDayTrend    String
+  ninetyDayTrend    String
+
+  rollingAvgScore  Float?
+  improvementPct   Float?
+  regressionPct    Float?
+  sessionsAnalyzed Int    @default(0)
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, exerciseId])
+}
+
+// One row per user — aggregates this phase introduces that don't belong on
+// User itself (which already has its own xp/level/streak gamification
+// fields, untouched by this phase).
+model UserStatistics {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  sessionsAnalyzed         Int      @default(0)
+  avgPerformanceScore      Float?
+  avgTechniqueScore        Float?
+  bestPerformanceScore     Float?
+  totalPerfectReps         Int      @default(0)
+  totalPerfectSessions     Int      @default(0)
+  consistencyStreak        Int      @default(0)
+  longestConsistencyStreak Int      @default(0)
+
+  lastAnalyzedAt DateTime?
+  updatedAt      DateTime  @updatedAt
+}
+
+// ============================================================
+// PERSONALIZED LEARNING ENGINE (Phase 8)
+//
+// Post-workout only, same as Phase 7 — nothing here runs during a live
+// session. This layer never mutates Form/Movement/Injury-Risk/Performance
+// Engine output; it only produces separate, personalized data (adaptive
+// threshold overrides, learned profile, predictions) that downstream
+// systems can optionally consume later. Defaults used by the runtime
+// engines (REP_TUNING, form-engine bands, etc.) are never overwritten —
+// see ALGORITHM.md "Personalized Learning Engine".
+// ============================================================
+
+enum FatigueProfile {
+  EASY_RECOVERY
+  SLOW_RECOVERY
+  FATIGUE_RESISTANT
+  RAPID_FATIGUE
+  INSUFFICIENT_DATA
+}
+
+enum CoachingStyle {
+  STRICT
+  ENCOURAGING
+  TECHNICAL
+  MINIMAL
+  MOTIVATIONAL
+}
+
+// Distinct from the existing onboarding FitnessGoal — see ALGORITHM.md
+// "Naming collisions, resolved".
+enum TrainingGoal {
+  STRENGTH
+  HYPERTROPHY
+  FAT_LOSS
+  ENDURANCE
+  GENERAL_FITNESS
+  REHABILITATION
+}
+
+enum WeaknessClassification {
+  NEW
+  RECURRING
+  RESOLVED
+  RAPIDLY_IMPROVING
+  PERSISTENT
+}
+
+// One row per user — the long-term learned profile. Trend fields
+// (consistencyProfile, injuryRiskTendency, confidenceTrend,
+// movementQualityTrend) are stored as plain strings, same pattern as
+// Phase 6/7's TrendDirection/ProgressTrend, not a shared enum.
+model UserLearningProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  experienceLevel          ExperienceLevel?
+  favoriteExercises        String[]        @default([]) // exerciseIds
+  weakestMovements         String[]        @default([]) // exerciseIds
+  strongestMovements       String[]        @default([]) // exerciseIds
+  preferredVolumeSets      Int?
+  trainingFrequencyPerWeek Float?
+  fatigueProfile           FatigueProfile?
+  consistencyProfile       String?
+  injuryRiskTendency       String?
+  coachingPreference       CoachingStyle   @default(ENCOURAGING)
+  confidenceTrend          String?
+  movementQualityTrend     String?
+
+  // 0..1 — how much data backs this profile, same data-availability-proxy
+  // concept as the Injury Risk Engine's confidence.ts.
+  learningConfidence Float @default(0)
+  sessionsAnalyzed   Int   @default(0)
+
+  updatedAt DateTime @updatedAt
+}
+
+// One row per (user, exercise-or-null, thresholdType) — a personalized
+// override, never a replacement for the code-owned default it was
+// computed against (defaultValueRef is stamped for traceability only).
+model AdaptiveThreshold {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  exerciseId String?
+  exercise   Exercise? @relation(fields: [exerciseId], references: [id])
+
+  thresholdType     String // e.g. "squatDepth","tempo","symmetry","rom",
+                            // "consistency","fatigue","instability",
+                            // "compensation","velocityLoss"
+  personalizedValue Float
+  defaultValueRef   Float?
+  confidence        Float  @default(0)
+  sampleSize        Int    @default(0)
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, exerciseId, thresholdType])
+  @@index([userId, thresholdType])
+}
+
+// One row per (user, exercise-or-null, issueId) — the learned conclusion
+// derived from Phase 7's WeaknessHistory (frequency/severity), not a
+// duplicate of that raw tracking.
+model LearnedWeakness {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  exerciseId String?
+  exercise   Exercise? @relation(fields: [exerciseId], references: [id])
+
+  issueId               String
+  classification        WeaknessClassification
+  confidence            Float                   @default(0)
+  recurrenceProbability Float?
+
+  learnedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, exerciseId, issueId])
+  @@index([userId, classification])
+}
+
+// One row per (user, recommendationType) — a correlation proxy for
+// whether a recommendation's associated metric improved afterward; there
+// is no explicit user feedback, so this is not confirmed causation. See
+// ALGORITHM.md "Known limitations".
+model RecommendationEffectiveness {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  recommendationType String
+  timesGiven         Int    @default(0)
+  timesImprovedAfter Int    @default(0)
+  effectivenessScore Float?
+
+  lastGivenAt     DateTime?
+  lastEvaluatedAt DateTime?
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([userId, recommendationType])
+}
+
+model GoalProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  goal            TrainingGoal
+  targetFrequency Int?
+  notes           String?
+
+  updatedAt DateTime @updatedAt
+}
+
+// Append-only — one row per prediction run, so the prediction history
+// itself is queryable, same pattern as Phase 7's PerformanceSnapshot.
+model ProgressPrediction {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  exerciseId String?
+  exercise   Exercise? @relation(fields: [exerciseId], references: [id])
+
+  expectedImprovementPct Float?
+  plateauProbability     Float?
+  estimatedNextPrValue   Float?
+  estimatedNextPrDate    DateTime?
+  expectedRecoveryHours  Float?
+  predictionConfidence   Float     @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, exerciseId, createdAt])
 }
 
 // ============================================================

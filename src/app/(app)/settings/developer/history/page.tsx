@@ -9,6 +9,7 @@ import {
   toggleFavorite,
   type DevSession,
 } from "@/lib/dev-history";
+import { useDevUnlocked } from "@/lib/dev";
 
 type SortKey = "date" | "fps" | "inference" | "confidence" | "accuracy";
 
@@ -18,7 +19,7 @@ const acc = (s: DevSession) =>
     : 100;
 
 export default function DevHistoryPage() {
-  const [unlocked, setUnlocked] = useState(false);
+  const unlocked = useDevUnlocked();
   const [sessions, setSessions] = useState<DevSession[]>([]);
   const [q, setQ] = useState("");
   const [engine, setEngine] = useState<"all" | "2D" | "3D">("all");
@@ -29,10 +30,9 @@ export default function DevHistoryPage() {
   const refresh = () => setSessions(loadSessions());
 
   useEffect(() => {
-    const isDev = process.env.NODE_ENV !== "production";
-    setUnlocked(isDev || localStorage.getItem("forge:dev") === "1");
-    refresh();
-  }, []);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (unlocked) refresh();
+  }, [unlocked]);
 
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -181,10 +181,18 @@ export default function DevHistoryPage() {
                   <td className="p-3 text-smoke">{s.trackingLoss}/{s.fallbackEvents}</td>
                   <td className="max-w-[120px] truncate p-3 text-smoke" title={s.device}>{s.device}</td>
                   <td className="whitespace-nowrap p-3">
-                    <button onClick={() => { toggleFavorite(s.id); refresh(); }} className={s.favorite ? "text-amber" : "text-smoke hover:text-chalk"}>
+                    <button
+                      onClick={() => { toggleFavorite(s.id); refresh(); }}
+                      aria-label={s.favorite ? "Unfavorite session" : "Favorite session"}
+                      className={s.favorite ? "text-amber" : "text-smoke hover:text-chalk"}
+                    >
                       <Star className={`h-4 w-4 ${s.favorite ? "fill-amber" : ""}`} />
                     </button>
-                    <button onClick={() => { if (confirm("Delete session?")) { deleteSession(s.id); refresh(); } }} className="ml-2 text-smoke hover:text-ember">
+                    <button
+                      onClick={() => { if (confirm("Delete session?")) { deleteSession(s.id); refresh(); } }}
+                      aria-label="Delete session"
+                      className="ml-2 text-smoke hover:text-ember"
+                    >
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </td>

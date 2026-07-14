@@ -65,6 +65,7 @@ export default async function TrainPage({
     <TrainerExperience
       exercise={exercise}
       bodyWeightKg={user.profile?.weightKg ?? 75}
+      heightCm={user.profile?.heightCm}
       history={{ bestWeightKg, bestVolumeKg, lastWeightKg }}
     />
   );

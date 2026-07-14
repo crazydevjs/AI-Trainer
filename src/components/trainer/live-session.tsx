@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Bug,
@@ -34,11 +34,15 @@ import {
 import { Coach } from "@/lib/coach";
 import { analyzeSet, type SetReport } from "@/lib/pose/set-analysis";
 import { isMirrored, type Facing } from "@/lib/camera";
-import { isDevUnlocked, getHudEnabled } from "@/lib/dev";
+import { isDevUnlocked, getHudEnabled, getInjuryRiskEngineEnabled, getExerciseIntelligenceEnabled } from "@/lib/dev";
+import { getExerciseIntelligenceSnapshot } from "@/lib/exercise-intelligence";
 import { displayWeight, fmtWeight, type Unit } from "@/lib/weight";
 import { RestScreen } from "./rest-screen";
 import type { WorkoutRecorder, RecorderHud } from "./use-workout-recorder";
 import type { TrainerExercise, LiftHistory } from "./trainer-experience";
+import type { SessionFormSummary } from "@/lib/pose/form-engine/types";
+import type { SessionMovementSummary } from "@/lib/pose/movement-engine/types";
+import { InjuryRiskEngine, type SessionRiskSummary } from "@/lib/pose/injury-risk-engine";
 
 export interface SessionResult {
   durationSec: number;
@@ -62,6 +66,12 @@ export interface SessionResult {
     weightKg?: number;
   }[];
   debugLog?: Record<string, unknown>[];
+  /** Form Analysis Engine session rollup — see src/lib/pose/form-engine/. */
+  formAnalysis?: SessionFormSummary;
+  /** Movement Intelligence Engine session rollup — see src/lib/pose/movement-engine/. */
+  movementAnalysis?: SessionMovementSummary;
+  /** Injury Risk Engine session rollup — see src/lib/pose/injury-risk-engine/. */
+  injuryRiskAnalysis?: SessionRiskSummary;
 }
 
 type Cue = { text: string; id: number; tone: "praise" | "correct" | "bad" };
@@ -147,12 +157,14 @@ export function LiveSession({
   });
 
   const [restReport, setRestReport] = useState<SetReport | null>(null);
-  const setStartCount = useRef(0);
+  const [setStartCountState, setSetStartCountState] = useState(0);
   const repTimes = useRef<number[]>([]);
-  const startTs = useRef(performance.now());
+  const startTs = useRef(0);
   const finishedRef = useRef(false);
+  const [finished, setFinished] = useState(false);
   const completedSets = useRef<SessionResult["sets"]>([]);
-  const coach = useRef(new Coach()).current;
+  const coachRef = useRef<Coach | null>(null);
+  if (coachRef.current == null) coachRef.current = new Coach();
   const startedRef = useRef(false);
   const hypeRef = useRef("");
   const prevReportRef = useRef<SetReport | null>(null);
@@ -162,17 +174,38 @@ export function LiveSession({
   const hudRef = useRef<RecorderHud>({ exercise: exercise.name, rep: "0", set: "Set 1" });
   const recStarted = useRef(false);
   const lastRepFlash = useRef(0);
+  const flashIdRef = useRef(0);
+  const [justCompleted, setJustCompleted] = useState(false);
   const [devHud] = useState(() => isDevUnlocked() && getHudEnabled());
-  const fpsHist = useRef<number[]>([]);
-  const infHist = useRef<number[]>([]);
+  const [fpsHist, setFpsHist] = useState<number[]>([]);
+  const [infHist, setInfHist] = useState<number[]>([]);
+  // Injury Risk Engine — driven from here (not use-pose-trainer.ts) since it
+  // needs rest/weight context this component already tracks; consumes only
+  // the Form/Movement Engines' already-computed output. See ALGORITHM.md
+  // "Injury Risk Engine".
+  const injuryRiskEngineRef = useRef<InjuryRiskEngine>(new InjuryRiskEngine());
+  const [riskEngineEnabled] = useState(() => getInjuryRiskEngineEnabled());
+  const [exerciseIntelEnabled] = useState(() => getExerciseIntelligenceEnabled());
+  const exerciseIntel = useMemo(
+    () => (exerciseIntelEnabled ? getExerciseIntelligenceSnapshot(exercise.poseKey ?? exercise.slug) : null),
+    [exerciseIntelEnabled, exercise.poseKey, exercise.slug],
+  );
+  const [riskState, setRiskState] = useState<ReturnType<InjuryRiskEngine["analyzeFrame"]> | null>(null);
   const requiredView = getCameraSetup(exercise.poseKey).view;
   const [currentWeightKg, setCurrentWeightKg] = useState(startWeightKg);
   const [nextWeightKg, setNextWeightKg] = useState(startWeightKg);
   const bestWeightRef = useRef(history.bestWeightKg);
   const bestVolumeRef = useRef(history.bestVolumeKg);
   const currentWeightRef = useRef(startWeightKg);
-  currentWeightRef.current = currentWeightKg;
   const [prBadge, setPrBadge] = useState(false);
+
+  useEffect(() => {
+    currentWeightRef.current = currentWeightKg;
+  }, [currentWeightKg]);
+
+  useEffect(() => {
+    startTs.current = performance.now();
+  }, []);
 
   useEffect(() => {
     setVoiceEnabled(voice);
@@ -197,7 +230,12 @@ export function LiveSession({
       if (e.type === "rep") {
         repTimes.current.push(performance.now());
         lastRepFlash.current = Date.now();
-        const phrase = coach.goodRep(e.quality);
+        const flashId = ++flashIdRef.current;
+        setJustCompleted(true);
+        window.setTimeout(() => {
+          if (flashIdRef.current === flashId) setJustCompleted(false);
+        }, 700);
+        const phrase = coachRef.current!.goodRep(e.quality);
         setCue({ text: phrase, id: Date.now(), tone: "praise" });
         setRepQuality({
           form: e.form,
@@ -207,10 +245,10 @@ export function LiveSession({
           id: Date.now(),
         });
       } else if (e.type === "badrep") {
-        const phrase = coach.badRep(e.reason);
+        const phrase = coachRef.current!.badRep(e.reason);
         setCue({ text: phrase, id: Date.now(), tone: "bad" });
       } else {
-        coach.correct(e.message);
+        coachRef.current!.correct(e.message);
         setCue({
           text: e.message,
           id: Date.now(),
@@ -218,7 +256,7 @@ export function LiveSession({
         });
       }
     },
-    [coach]
+    []
   );
 
   // running only when not paused, not resting, not finished
@@ -228,6 +266,8 @@ export function LiveSession({
     status,
     errorMsg,
     state,
+    formState,
+    movementState,
     telemetry,
     lockState,
     lockCenter,
@@ -236,43 +276,86 @@ export function LiveSession({
     getSummary,
     getAttempts,
     getDebugLog,
+    getFormAnalysis,
+    getMovementAnalysis,
   } = usePoseTrainer({
     poseKey: exercise.poseKey,
-    running: !paused && !resting && !finishedRef.current,
+    running: !paused && !resting && !finished,
     mode,
     facing,
     onEvent: handleEvent,
   });
 
-  if (devHud) {
-    const h = fpsHist.current;
-    if (h[h.length - 1] !== telemetry.fps) {
-      h.push(telemetry.fps);
-      if (h.length > 48) h.shift();
-    }
-    const g = infHist.current;
-    if (g[g.length - 1] !== telemetry.inferenceMs) {
-      g.push(telemetry.inferenceMs);
-      if (g.length > 48) g.shift();
-    }
-  }
+  // Dev-HUD-only rolling sparkline history: genuinely needs the previous
+  // accumulated buffer, which can't be derived from this render's props
+  // alone, so an effect is the correct tool here even though the rule
+  // below is tuned for a narrower "external system" case.
+  useEffect(() => {
+    if (!devHud) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFpsHist((h) =>
+      h[h.length - 1] === telemetry.fps ? h : [...h, telemetry.fps].slice(-48)
+    );
+    setInfHist((g) =>
+      g[g.length - 1] === telemetry.inferenceMs ? g : [...g, telemetry.inferenceMs].slice(-48)
+    );
+  }, [devHud, telemetry.fps, telemetry.inferenceMs]);
+
+  // Surface Form Engine coaching in the same cue bubble used for rep praise/
+  // correction — only when no rep cue is currently showing, so the two
+  // systems never fight over the same bubble.
+  const cueRef = useRef<Cue | null>(null);
+  useEffect(() => {
+    cueRef.current = cue;
+  }, [cue]);
+  useEffect(() => {
+    const c = formState?.coaching;
+    if (!c || cueRef.current) return;
+    setCue({ text: c.text, id: Date.now(), tone: c.tone === "praise" ? "praise" : "correct" });
+  }, [formState]);
+
+  // Movement Engine coaching is a third, lower-frequency tier — only shown
+  // when neither a rep cue nor a Form Engine cue already occupies the bubble.
+  useEffect(() => {
+    const c = movementState?.coaching;
+    if (!c || cueRef.current) return;
+    setCue({ text: c.text, id: Date.now(), tone: c.tone === "praise" ? "praise" : "correct" });
+  }, [movementState]);
+
+  // Injury Risk Engine — dev-HUD/export only this phase, no live end-user
+  // cue (see ALGORITHM.md "Injury Risk Engine" for the scoping rationale).
+  useEffect(() => {
+    if (!riskEngineEnabled || !formState) return;
+    const secondsSinceLastRep = lastRepFlash.current ? (Date.now() - lastRepFlash.current) / 1000 : null;
+    setRiskState(
+      injuryRiskEngineRef.current.analyzeFrame({
+        coachState: state,
+        formSnapshot: formState,
+        movementSnapshot: movementState,
+        secondsSinceLastRep,
+        weightKg: weighted ? currentWeightRef.current : undefined,
+        now: performance.now(),
+      })
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [movementState, formState, riskEngineEnabled]);
 
   // Greet on first ready + keep the coach talking during quiet stretches.
   useEffect(() => {
     if (status === "ready" && !startedRef.current) {
       startedRef.current = true;
-      coach.start();
+      coachRef.current!.start();
     }
-  }, [status, coach]);
+  }, [status]);
 
   useEffect(() => {
     const id = setInterval(() => {
       if (finishedRef.current || paused || resting || status !== "ready") return;
-      const p = coach.maybeMotivate();
+      const p = coachRef.current!.maybeMotivate();
       if (p) setCue({ text: p, id: Date.now(), tone: "praise" });
     }, 4000);
     return () => clearInterval(id);
-  }, [paused, resting, status, coach]);
+  }, [paused, resting, status]);
 
   // Auto-start screen recording once the camera/AI is live.
   useEffect(() => {
@@ -305,6 +388,7 @@ export function LiveSession({
   const finish = useCallback(() => {
     if (finishedRef.current) return;
     finishedRef.current = true;
+    setFinished(true);
     stopSpeaking();
     recorder.stop();
     const s = getSummary();
@@ -348,6 +432,9 @@ export function LiveSession({
       targetReps,
       repsMode,
       debugLog: getDebugLog(),
+      formAnalysis: getFormAnalysis(),
+      movementAnalysis: getMovementAnalysis(),
+      injuryRiskAnalysis: riskEngineEnabled ? injuryRiskEngineRef.current.getSessionSummary() : undefined,
       sets:
         completedSets.current.length > 0
           ? completedSets.current
@@ -361,7 +448,22 @@ export function LiveSession({
               },
             ],
     });
-  }, [getSummary, isHold, targetSets, targetReps, exercise.metValue, bodyWeightKg, weighted, onFinish]);
+  }, [
+    getSummary,
+    getFormAnalysis,
+    getMovementAnalysis,
+    getDebugLog,
+    recorder,
+    riskEngineEnabled,
+    isHold,
+    targetSets,
+    targetReps,
+    repsMode,
+    exercise.metValue,
+    bodyWeightKg,
+    weighted,
+    onFinish,
+  ]);
 
   // detect set completion
   const liveCount = isHold ? state.holdSeconds : state.reps;
@@ -417,7 +519,7 @@ export function LiveSession({
     if (currentSet >= targetSets) {
       finish();
     } else {
-      setStartCount.current = liveCount;
+      setSetStartCountState(liveCount);
       setCurrentSet((s) => s + 1);
       if (report) {
         prevReportRef.current = report;
@@ -435,7 +537,7 @@ export function LiveSession({
 
   useEffect(() => {
     if (resting || finishedRef.current || status !== "ready") return;
-    const inSet = liveCount - setStartCount.current;
+    const inSet = liveCount - setStartCountState;
 
     // Reps-to-failure: never auto-complete — the user taps "Finish set".
     if (repsMode === "failure") return;
@@ -446,10 +548,10 @@ export function LiveSession({
       const tag = `${currentSet}-${remaining}`;
       if (remaining === 1 && hypeRef.current !== tag) {
         hypeRef.current = tag;
-        coach.lastOne();
+        coachRef.current!.lastOne();
       } else if (remaining === 2 && hypeRef.current !== tag) {
         hypeRef.current = tag;
-        coach.almost();
+        coachRef.current!.almost();
       }
     }
 
@@ -457,11 +559,15 @@ export function LiveSession({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveCount]);
 
-  // rest countdown + rest-period voice coaching
+  // rest countdown + rest-period voice coaching. The restLeft<=0 transition
+  // must fire from here (not deferred into the setTimeout below) because
+  // restLeft can also be forced to 0 externally via the rest screen's
+  // "skip" button, not just by this effect's own timer.
   useEffect(() => {
     if (!resting) return;
     if (restLeft <= 0) {
       playBeep();
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setResting(false);
       setRestReport(null);
       // mark the next set's attempt/time window
@@ -469,7 +575,7 @@ export function LiveSession({
       repTimesAtSetStart.current = repTimes.current.length;
       // apply the weight chosen for the upcoming set
       if (weighted) setCurrentWeightKg(nextWeightKg);
-      coach.nextSet();
+      coachRef.current!.nextSet();
       if (weighted && nextWeightKg > 0) {
         const heavy = nextWeightKg >= bestWeightRef.current;
         speakSequence([
@@ -488,9 +594,9 @@ export function LiveSession({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resting, restLeft]);
 
-  const inSetCount = Math.max(0, liveCount - setStartCount.current);
+  const inSetCount = Math.max(0, liveCount - setStartCountState);
   const repState =
-    Date.now() - lastRepFlash.current < 700
+    justCompleted
       ? "Complete"
       : state.repPhase === "idle"
         ? "Idle"
@@ -499,16 +605,31 @@ export function LiveSession({
           : "Up";
 
   // keep the recorder's burned-in overlay text current
-  hudRef.current = {
-    exercise: exercise.name,
-    rep: isHold ? `${inSetCount}s` : `${inSetCount} / ${targetReps}`,
-    set:
-      `Set ${Math.min(currentSet, targetSets)}/${targetSets}` +
-      (weighted && currentWeightKg > 0 ? ` · ${fmtWeight(currentWeightKg, unit)}` : ""),
-    cue: cue?.tone === "praise" ? undefined : cue?.text,
+  useEffect(() => {
+    hudRef.current = {
+      exercise: exercise.name,
+      rep: isHold ? `${inSetCount}s` : `${inSetCount} / ${targetReps}`,
+      set:
+        `Set ${Math.min(currentSet, targetSets)}/${targetSets}` +
+        (weighted && currentWeightKg > 0 ? ` · ${fmtWeight(currentWeightKg, unit)}` : ""),
+      cue: cue?.tone === "praise" ? undefined : cue?.text,
+      resting,
+      restText: `REST ${restLeft}s`,
+    };
+  }, [
+    exercise.name,
+    isHold,
+    inSetCount,
+    targetReps,
+    currentSet,
+    targetSets,
+    weighted,
+    currentWeightKg,
+    unit,
+    cue,
     resting,
-    restText: `REST ${restLeft}s`,
-  };
+    restLeft,
+  ]);
 
   function toggleRecord() {
     if (recorder.recording) recorder.stop();
@@ -537,12 +658,18 @@ export function LiveSession({
       {/* darkening vignette for HUD legibility */}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/70" />
 
-      {/* Click-to-lock layer (below HUD controls) */}
+      {/* Click-to-lock layer (below HUD controls). Pointer-only by nature
+          (tap the person you want to track in the video) — the "Lock me
+          in"/lock button below give keyboard/screen-reader users an
+          equivalent way to lock onto the center-detected person, so this
+          layer is hidden from assistive tech rather than falsely exposed
+          as a focusable control with no meaningful non-visual target. */}
       {status === "ready" && (
         <div
           className="absolute inset-0 z-10"
           onClick={(e) => lockAtClient(e.clientX, e.clientY)}
           title="Tap a person to lock onto them"
+          aria-hidden="true"
         />
       )}
 
@@ -618,11 +745,11 @@ export function LiveSession({
         <div className="absolute right-3 top-28 z-30 w-56 space-y-0.5 rounded-xl border border-volt/30 bg-black/75 p-3 font-mono text-[11px] text-fog backdrop-blur">
           <p className="mb-1 font-bold text-volt">DEV HUD</p>
           <Row2 k="FPS" v={`${telemetry.fps}`} />
-          <Sparkline data={fpsHist.current} max={60} color="#2bd4ff" refValue={30} />
+          <Sparkline data={fpsHist} max={60} color="#2bd4ff" refValue={30} />
           <Row2 k="inference" v={`${telemetry.inferenceMs} ms`} />
           <Sparkline
-            data={infHist.current}
-            max={Math.max(40, ...infHist.current)}
+            data={infHist}
+            max={Math.max(40, ...infHist)}
             color="#ffc24b"
             refValue={33}
           />
@@ -650,6 +777,25 @@ export function LiveSession({
           <Row2 k="rep conf" v={`${state.confidence}%`} />
           <Row2 k="lm conf" v={`${telemetry.confidence}% · ${telemetry.landmarks} pts`} />
           <Row2 k="wrist veto" v={state.debug.wristVeto ? "ACTIVE" : "—"} />
+
+          <p className="mb-0.5 mt-2 font-bold text-volt">STATE MACHINE</p>
+          <Row2 k="state" v={state.debug.state} />
+          <Row2 k="prev state" v={state.debug.prevState} />
+          <Row2 k="reason" v={state.debug.transitionReason || "—"} />
+          <Row2 k="state conf" v={`${state.debug.stateConfidence}%`} />
+          <Row2 k="pose conf" v={`${state.debug.poseConfidence}%`} />
+          {state.debug.lastValidation && (
+            <div className="mt-1 space-y-0.5">
+              {state.debug.lastValidation.checks.map((c) => (
+                <div key={c.id} className="flex items-center justify-between">
+                  <span className={c.passed ? "text-neon" : "text-ember"}>
+                    {c.passed ? "✓" : "✗"} {c.label}
+                  </span>
+                  {c.detail && <span className="text-smoke">{c.detail}</span>}
+                </div>
+              ))}
+            </div>
+          )}
           {state.debug.lastDecision && (
             <p
               className={`mt-1 rounded-md px-1.5 py-1 leading-tight ${
@@ -663,6 +809,124 @@ export function LiveSession({
               pk {state.debug.lastDecision.peak} req {state.debug.lastDecision.required} · rom{" "}
               {state.debug.lastDecision.rom} · conf {state.debug.lastDecision.confidence}%
             </p>
+          )}
+
+          <p className="mb-0.5 mt-2 font-bold text-volt">FORM ENGINE</p>
+          <Row2 k="score" v={`${formState?.scores.overall ?? "—"}`} />
+          <Row2 k="joint / align" v={`${formState?.scores.joint ?? "—"} / ${formState?.scores.alignment ?? "—"}`} />
+          <Row2 k="balance / stab" v={`${formState?.scores.balance ?? "—"} / ${formState?.scores.stability ?? "—"}`} />
+          <Row2 k="phase" v={formState?.repState ?? "—"} />
+          <Row2 k="confidence" v={formState ? `${Math.round(formState.confidence * 100)}%` : "—"} />
+          {formState && formState.activeIssues.length > 0 && (
+            <div className="mt-1 space-y-0.5">
+              {formState.activeIssues.slice(0, 4).map((issue) => (
+                <div key={issue.id} className="flex items-center justify-between">
+                  <span
+                    className={
+                      issue.severity === "critical" || issue.severity === "major"
+                        ? "text-ember"
+                        : "text-amber"
+                    }
+                  >
+                    {issue.id} · {issue.severity}
+                  </span>
+                  <span className="text-smoke">
+                    {Math.round(issue.confidence * 100)}% · {Math.round(issue.durationMs / 100) / 10}s
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          {formState?.coaching && (
+            <p className="mt-1 rounded-md bg-amber/15 px-1.5 py-1 leading-tight text-amber">
+              {formState.coaching.text}
+            </p>
+          )}
+
+          <p className="mb-0.5 mt-2 font-bold text-volt">MOVEMENT ENGINE</p>
+          <Row2 k="score" v={`${movementState?.scores.overall ?? "—"}`} />
+          <Row2
+            k="smooth / control"
+            v={`${movementState?.scores.smoothness ?? "—"} / ${movementState?.scores.control ?? "—"}`}
+          />
+          <Row2
+            k="symmetry / consist"
+            v={`${movementState?.scores.symmetry ?? "—"} / ${movementState?.scores.consistency ?? "—"}`}
+          />
+          <Row2 k="stability" v={`${movementState?.scores.stability ?? "—"}`} />
+          <Row2 k="dominant side" v={movementState?.dominantSide ?? "—"} />
+          <Row2
+            k="velocity"
+            v={movementState?.velocity != null ? movementState.velocity.toFixed(2) : "—"}
+          />
+          {movementState && movementState.activeCompensations.length > 0 && (
+            <div className="mt-1 space-y-0.5">
+              {movementState.activeCompensations.slice(0, 3).map((ev, i) => (
+                <div key={`${ev.id}-${i}`} className="flex items-center justify-between">
+                  <span className="text-ember">{ev.region} compensation</span>
+                  <span className="text-smoke">{Math.round(ev.confidence * 100)}%</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {movementState?.coaching && (
+            <p className="mt-1 rounded-md bg-amber/15 px-1.5 py-1 leading-tight text-amber">
+              {movementState.coaching.text}
+            </p>
+          )}
+
+          <p className="mb-0.5 mt-2 font-bold text-volt">INJURY RISK ENGINE</p>
+          <Row2
+            k="overall risk"
+            v={riskState?.overallRisk ?? "—"}
+          />
+          <Row2 k="risk score" v={riskState ? `${riskState.riskScore}` : "—"} />
+          <Row2 k="confidence" v={riskState ? `${Math.round(riskState.confidence * 100)}%` : "—"} />
+          <Row2 k="fatigue" v={riskState ? `${riskState.fatigueScore}` : "—"} />
+          <Row2
+            k="compensation"
+            v={movementState ? `${movementState.activeCompensations.length} active` : "—"}
+          />
+          {riskState && riskState.topReasons.length > 0 && (
+            <div className="mt-1 space-y-0.5">
+              {riskState.topReasons.map((reason, i) => (
+                <div key={i} className="text-[11px] text-amber">
+                  {i + 1}. {reason}
+                </div>
+              ))}
+            </div>
+          )}
+          {riskState?.recommendation && (
+            <p className="mt-1 rounded-md bg-ember/15 px-1.5 py-1 leading-tight text-ember">
+              {riskState.recommendation.text}
+            </p>
+          )}
+
+          {exerciseIntel && (
+            <>
+              <p className="mb-0.5 mt-2 font-bold text-volt">EXERCISE INTELLIGENCE</p>
+              <Row2 k="pattern" v={exerciseIntel.profile.movementPattern} />
+              <Row2
+                k="rom"
+                v={`${exerciseIntel.movement.rom.fullRangeDeg[0]}–${exerciseIntel.movement.rom.fullRangeDeg[1]}° @ ${exerciseIntel.movement.rom.primaryJoint}`}
+              />
+              <Row2
+                k="tempo"
+                v={`${exerciseIntel.movement.tempo.eccentricSec[0]}-${exerciseIntel.movement.tempo.eccentricSec[1]}s ecc / ${exerciseIntel.movement.tempo.concentricSec[0]}-${exerciseIntel.movement.tempo.concentricSec[1]}s con`}
+              />
+              <Row2 k="risk" v={exerciseIntel.profile.risk.overallRiskSensitivity} />
+              <Row2 k="difficulty" v={exerciseIntel.profile.difficulty} />
+              {exerciseIntel.profile.commonMistakes.length > 0 && (
+                <div className="mt-1 space-y-0.5">
+                  {exerciseIntel.profile.commonMistakes.slice(0, 3).map((m) => (
+                    <div key={m.id} className="flex items-center justify-between">
+                      <span className="text-amber">{m.label}</span>
+                      <span className="text-smoke">{m.severity}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

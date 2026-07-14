@@ -18,7 +18,7 @@ export function modelFor(poseKey?: string | null): PoseModel {
   return poseKey && POSE_3D.has(poseKey) ? "3D" : "2D";
 }
 
-export const use3DFor = (poseKey?: string | null) => modelFor(poseKey) === "3D";
+export const needs3D = (poseKey?: string | null) => modelFor(poseKey) === "3D";
 
 import type { Tier } from "./device-tier";
 
@@ -35,7 +35,7 @@ export function chooseModel(
 ): PoseModel {
   if (override === "2d") return "2D";
   if (override === "3d") return "3D";
-  if (!use3DFor(poseKey)) return "2D";
+  if (!needs3D(poseKey)) return "2D";
   return tier === "low" ? "2D" : "3D";
 }
 

@@ -11,8 +11,18 @@ import { KeypointSmoother } from "@/lib/pose/one-euro";
 import { chooseModel, type PoseModel } from "@/lib/pose/model-select";
 import { detectTier } from "@/lib/pose/device-tier";
 import { loadSmoothing } from "@/lib/pose/smoothing-config";
-import { getEngineOverride, type EngineOverride } from "@/lib/dev";
+import {
+  getEngineOverride,
+  getFormEngineEnabled,
+  getMovementEngineEnabled,
+  getStrictValidation,
+  type EngineOverride,
+} from "@/lib/dev";
 import { isMirrored, type Facing } from "@/lib/camera";
+import { FormEngine } from "@/lib/pose/form-engine/engine";
+import type { FormAnalysisSnapshot, SessionFormSummary } from "@/lib/pose/form-engine/types";
+import { MovementEngine } from "@/lib/pose/movement-engine/engine";
+import type { MovementAnalysisSnapshot, SessionMovementSummary } from "@/lib/pose/movement-engine/types";
 
 const SKELETON: [string, string][] = [
   ["left_shoulder", "right_shoulder"],
@@ -59,6 +69,12 @@ const INITIAL_COACH: CoachState = {
     turnaroundTol: 0.1,
     wristVeto: false,
     lastDecision: null,
+    state: "WAITING",
+    prevState: "WAITING",
+    transitionReason: "",
+    stateConfidence: 0,
+    poseConfidence: 0,
+    lastValidation: null,
   },
 };
 
@@ -106,11 +122,20 @@ export function usePoseTrainer({
     new RepCounter(getExerciseConfig(poseKey), getFormChecks(poseKey), {
       mode,
       requiredView: getCameraSetup(poseKey).view,
+      strict: getStrictValidation(),
     })
   );
+  const formEngineRef = useRef<FormEngine>(new FormEngine(poseKey, mode));
+  const formEngineEnabledRef = useRef(true);
+  const movementEngineRef = useRef<MovementEngine>(new MovementEngine());
+  const movementEngineEnabledRef = useRef(true);
+  // FormEngine.getSessionSummary() has side effects (seals still-open issues,
+  // records weakness trends) — memoize so getFormAnalysis()/getMovementAnalysis()
+  // can both be called without double-counting.
+  const formSessionSummaryRef = useRef<SessionFormSummary | null>(null);
   const lockRef = useRef<BodyLock>(new BodyLock());
   const smootherRef = useRef<KeypointSmoother | null>(null);
-  if (!smootherRef.current) {
+  if (smootherRef.current == null) {
     const p = loadSmoothing();
     smootherRef.current = new KeypointSmoother(p.minCutoff, p.beta, p.dCutoff);
   }
@@ -140,11 +165,12 @@ export function usePoseTrainer({
   const onEventRef = useRef(onEvent);
   const lastLockEmit = useRef(0);
   const facingRef = useRef(facing);
-  facingRef.current = facing;
 
   const [status, setStatus] = useState<TrainerStatus>("loading");
   const [errorMsg, setErrorMsg] = useState("");
   const [state, setState] = useState<CoachState>(INITIAL_COACH);
+  const [formState, setFormState] = useState<FormAnalysisSnapshot | null>(null);
+  const [movementState, setMovementState] = useState<MovementAnalysisSnapshot | null>(null);
   const [lockState, setLockState] = useState<LockState>(INITIAL_LOCK);
   const [model, setModel] = useState<PoseModel>("2D");
   const [telemetry, setTelemetry] = useState<Telemetry>({
@@ -157,8 +183,18 @@ export function usePoseTrainer({
     inferenceMs: 0,
   });
 
-  runningRef.current = running;
-  onEventRef.current = onEvent;
+  // Mirror the latest prop values into refs so the long-lived requestAnimationFrame
+  // loop (started once below, in a mount-only effect) always reads current values
+  // without needing to restart the loop on every prop change.
+  useEffect(() => {
+    facingRef.current = facing;
+  }, [facing]);
+  useEffect(() => {
+    runningRef.current = running;
+  }, [running]);
+  useEffect(() => {
+    onEventRef.current = onEvent;
+  }, [onEvent]);
 
   // Load model + run loop once.
   useEffect(() => {
@@ -171,6 +207,8 @@ export function usePoseTrainer({
         const poseDetection = await import("@tensorflow-models/pose-detection");
         pdRef.current = poseDetection;
         overrideRef.current = getEngineOverride();
+        formEngineEnabledRef.current = getFormEngineEnabled();
+        movementEngineEnabledRef.current = getMovementEngineEnabled();
         const chosen = chooseModel(poseKey, tierRef.current, overrideRef.current);
         const detector =
           chosen === "3D"
@@ -281,6 +319,9 @@ export function usePoseTrainer({
                   peak: e.peak,
                   required: e.required,
                   angleSource: e.angleSource,
+                  state: e.state,
+                  prevState: e.prevState,
+                  validation: e.validation,
                 });
               else if (e.type === "badrep")
                 logEvent({
@@ -292,10 +333,29 @@ export function usePoseTrainer({
                   peak: e.peak,
                   required: e.required,
                   angleSource: e.angleSource,
+                  state: e.state,
+                  prevState: e.prevState,
+                  reasonCode: e.reasonCode,
+                  validation: e.validation,
                 });
             }
             const cs = counter.state();
             setState(cs);
+            if (formEngineEnabledRef.current) {
+              const formSnapshot = formEngineRef.current.analyzeFrame(
+                locked.keypoints,
+                locked.keypoints3D,
+                cs,
+                now
+              );
+              setFormState(formSnapshot);
+              // Movement Engine depends entirely on the Form Engine's output
+              // (joint metrics, sway, active issues) — it never touches pose
+              // landmarks itself, so it only runs when Form Engine does.
+              if (movementEngineEnabledRef.current) {
+                setMovementState(movementEngineRef.current.analyzeFrame(cs, formSnapshot, now));
+              }
+            }
             formView = { color: cs.color, faultJoints: new Set(cs.faultJoints) };
             // tracking loss / regain events
             if (cs.tracking !== prevTracking.current) {
@@ -359,6 +419,11 @@ export function usePoseTrainer({
               peak: dbg.peak,
               required: dbg.requiredProgress,
               wristVeto: dbg.wristVeto,
+              state: dbg.state,
+              prevState: dbg.prevState,
+              transitionReason: dbg.transitionReason,
+              stateConfidence: dbg.stateConfidence,
+              poseConfidence: dbg.poseConfidence,
             });
           }
         } catch {
@@ -454,6 +519,8 @@ export function usePoseTrainer({
     status,
     errorMsg,
     state,
+    formState,
+    movementState,
     model,
     telemetry,
     lockState,
@@ -463,6 +530,14 @@ export function usePoseTrainer({
     getSummary: () => counterRef.current.summary(),
     getAttempts: () => counterRef.current.getAttempts(),
     getDebugLog: () => debugLog.current,
+    getFormAnalysis: (): SessionFormSummary => {
+      formSessionSummaryRef.current ??= formEngineRef.current.getSessionSummary();
+      return formSessionSummaryRef.current;
+    },
+    getMovementAnalysis: (): SessionMovementSummary => {
+      formSessionSummaryRef.current ??= formEngineRef.current.getSessionSummary();
+      return movementEngineRef.current.getSessionSummary(formSessionSummaryRef.current);
+    },
   };
 }
 

@@ -14,6 +14,7 @@ import { detectTier } from "@/lib/pose/device-tier";
 import { getExerciseConfig } from "@/lib/pose/exercises";
 import { REP_TUNING } from "@/lib/pose/rep-counter";
 import { loadSmoothing } from "@/lib/pose/smoothing-config";
+import { loadCalibration } from "@/lib/pose/calibration";
 import type { AiLogChunk, SaveResult } from "./experience";
 
 export function WorkoutSummary({
@@ -220,6 +221,7 @@ function exportAiLogs(title: string, durationSec: number, chunks: AiLogChunk[]) 
       engineOverride: getEngineOverride(),
       repEngine: REP_TUNING,
       smoothing: loadSmoothing(),
+      calibration: loadCalibration(),
     },
     trackers: chunks.map((c) => ({
       exercise: c.exercise,
@@ -229,6 +231,8 @@ function exportAiLogs(title: string, durationSec: number, chunks: AiLogChunk[]) 
       exerciseConfig: getExerciseConfig(c.poseKey),
       events: c.log.length,
       log: c.log,
+      formAnalysis: c.formAnalysis ?? null,
+      movementAnalysis: c.movementAnalysis ?? null,
     })),
   };
   const a = document.createElement("a");

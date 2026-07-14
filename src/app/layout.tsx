@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, Oswald } from "next/font/google";
 import { Toaster } from "sonner";
 import { ServiceWorkerCleanup } from "@/components/sw-cleanup";
+import { CrashReporter } from "@/components/app/crash-reporter";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -40,6 +41,7 @@ export default function RootLayout({
         suppressHydrationWarning
       >
         <ServiceWorkerCleanup />
+        <CrashReporter />
         {children}
         <Toaster
           theme="dark"
